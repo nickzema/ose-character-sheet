@@ -1,0 +1,12 @@
+{
+  "name": "OSE Character Sheets",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "action": {
+    "title": "OSE Character Sheets",
+    "icon": "/icon.svg",
+    "popover": "/",
+    "height": 700,
+    "width": 420
+  }
+}
