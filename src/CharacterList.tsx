@@ -4,13 +4,21 @@ interface Props {
   characters: Character[];
   onSelect: (id: string) => void;
   onAdd: () => void;
+  onDelete: (id: string) => void;
 }
 
-export default function CharacterList({ characters, onSelect, onAdd }: Props) {
+export default function CharacterList({ characters, onSelect, onAdd, onDelete }: Props) {
   const sorted = [...characters].sort((a, b) => {
     if (a.type !== b.type) return a.type === "PC" ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
+
+  const handleDelete = (e: React.MouseEvent, c: Character) => {
+    e.stopPropagation();
+    if (window.confirm(`Remove "${c.name || "this character"}" from the party?`)) {
+      onDelete(c.id);
+    }
+  };
 
   return (
     <div className="list">
@@ -36,7 +44,10 @@ export default function CharacterList({ characters, onSelect, onAdd }: Props) {
                   {c.alignment ? ` \u00b7 ${c.alignment}` : ""}
                 </div>
               </div>
-              <div className="hp-box">{c.player || ""}</div>
+              <div className="row-right">
+                <div className="hp-box">{c.player || ""}</div>
+                <button className="row-delete" title="Remove from party" onClick={(e) => handleDelete(e, c)}>&times;</button>
+              </div>
             </div>
           </div>
         ))}

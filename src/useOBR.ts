@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import type { Character } from "./types";
+import { healCharacter, type Character } from "./types";
 
 const METADATA_KEY = "com.p4p.ose-character-sheet/roster";
 
@@ -30,6 +30,11 @@ export function usePlayer() {
   return player;
 }
 
+function loadRoster(metadata: Record<string, unknown>): Character[] {
+  const raw = (metadata[METADATA_KEY] as Partial<Character>[]) ?? [];
+  return raw.map((c) => healCharacter(c as Partial<Character> & { id: string }));
+}
+
 export function useRoster() {
   const [roster, setRoster] = useState<Character[] | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
@@ -38,9 +43,9 @@ export function useRoster() {
     let unsubscribe: (() => void) | undefined;
     OBR.onReady(async () => {
       const metadata = await OBR.room.getMetadata();
-      setRoster((metadata[METADATA_KEY] as Character[]) ?? []);
+      setRoster(loadRoster(metadata));
       unsubscribe = OBR.room.onMetadataChange((metadata) => {
-        setRoster((metadata[METADATA_KEY] as Character[]) ?? []);
+        setRoster(loadRoster(metadata));
       });
     });
     return () => unsubscribe?.();

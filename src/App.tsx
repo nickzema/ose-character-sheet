@@ -77,7 +77,7 @@ export default function App() {
           onBack={() => setSelectedId(null)}
         />
       ) : (
-        <CharacterList characters={roster} onSelect={setSelectedId} onAdd={addCharacter} />
+        <CharacterList characters={roster} onSelect={setSelectedId} onAdd={addCharacter} onDelete={deleteCharacter} />
       )}
     </div>
   );

@@ -173,3 +173,31 @@ export function blankCharacter(id: string, ownerId: string): Character {
     xpPercent: "",
   };
 }
+
+/**
+ * Fills in any fields missing from stored data with sane defaults. Needed
+ * because characters saved under an older version of this schema (before
+ * a field was added, or before the whole shape changed) would otherwise
+ * crash the sheet when it tries to read something that isn't there -
+ * this makes old data load safely instead, healing itself as you edit it.
+ */
+export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: string }): Character {
+  const blank = blankCharacter(raw.id, raw.ownerId ?? "unknown");
+  return {
+    ...blank,
+    ...raw,
+    abilities: { ...blank.abilities, ...raw.abilities },
+    saves: { ...blank.saves, ...raw.saves },
+    standardInventory: { ...blank.standardInventory, ...raw.standardInventory },
+    itemBasedInventory: {
+      unencumbering: raw.itemBasedInventory?.unencumbering ?? blank.itemBasedInventory.unencumbering,
+      equipped: raw.itemBasedInventory?.equipped?.length ? raw.itemBasedInventory.equipped : blank.itemBasedInventory.equipped,
+      packed: raw.itemBasedInventory?.packed?.length ? raw.itemBasedInventory.packed : blank.itemBasedInventory.packed,
+    },
+    coins: { ...blank.coins, ...raw.coins },
+    classFeatures: { ...blank.classFeatures, ...raw.classFeatures },
+    thiefSkills: { ...blank.thiefSkills, ...raw.thiefSkills },
+    spellLevels: raw.spellLevels?.length === 6 ? raw.spellLevels : blank.spellLevels,
+    weapons: raw.weapons?.length ? raw.weapons : blank.weapons,
+  };
+}

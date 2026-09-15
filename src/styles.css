@@ -107,6 +107,12 @@ textarea.locked{ resize:none; }
   text-transform:uppercase; letter-spacing:0.04em;
 }
 .hp-box{ font-family:'Oswald',sans-serif; font-size:13px; font-weight:600; color:var(--ink); white-space:nowrap; padding-left:10px; }
+.row-right{ display:flex; align-items:center; gap:10px; }
+.row-delete{
+  width:22px; height:22px; flex-shrink:0; border:1.5px solid var(--ink); background:#FCFBF8;
+  color:var(--hp-dead); font-size:15px; line-height:1; cursor:pointer; padding:0;
+}
+.row-delete:hover{ background:var(--hp-dead); color:#fff; }
 
 /* Sheet view */
 .sheet-view{ padding:16px 18px 20px; min-height:100vh; }
