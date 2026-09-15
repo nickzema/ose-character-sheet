@@ -1,5 +1,4 @@
-// Modifier tables verified against the OSE SRD (Ability Scores).
-// https://osesrd.opengamingnetwork.com/player-characters/
+// Verified against the OSE SRD (Ability Scores) and the AAC character sheet.
 
 function bracket(score: number): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
   if (score <= 3) return 0;
@@ -14,53 +13,19 @@ function bracket(score: number): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
 const STD_MOD = [-3, -2, -1, 0, 1, 2, 3];
 const OPEN_DOORS = ["1-in-6", "1-in-6", "1-in-6", "2-in-6", "3-in-6", "4-in-6", "5-in-6"];
 const INIT_MOD = [-2, -1, -1, 0, 1, 1, 2];
-const CHA_REACTION = [-2, -1, -1, 0, 1, 1, 2];
 const CHA_MAX_RETAINERS = [1, 2, 3, 4, 5, 6, 7];
 const CHA_LOYALTY = [4, 5, 6, 7, 8, 9, 10];
 
-export function strMelee(score: number) {
-  return STD_MOD[bracket(score)];
-}
-export function strOpenDoors(score: number) {
-  return OPEN_DOORS[bracket(score)];
-}
-export function dexAC(score: number) {
-  return STD_MOD[bracket(score)];
-}
-export function dexMissile(score: number) {
-  return STD_MOD[bracket(score)];
-}
-export function dexInit(score: number) {
-  return INIT_MOD[bracket(score)];
-}
-export function wisMagicSaves(score: number) {
-  return STD_MOD[bracket(score)];
-}
-export function conHP(score: number) {
-  return STD_MOD[bracket(score)];
-}
-export function chaReaction(score: number) {
-  return CHA_REACTION[bracket(score)];
-}
-export function chaMaxRetainers(score: number) {
-  return CHA_MAX_RETAINERS[bracket(score)];
-}
-export function chaLoyalty(score: number) {
-  return CHA_LOYALTY[bracket(score)];
-}
+export const abilityMod = (score: number) => STD_MOD[bracket(score)];
+export const strOpenDoors = (score: number) => OPEN_DOORS[bracket(score)];
+export const dexInitMod = (score: number) => INIT_MOD[bracket(score)];
+export const chaMaxRetainers = (score: number) => CHA_MAX_RETAINERS[bracket(score)];
+export const chaLoyalty = (score: number) => CHA_LOYALTY[bracket(score)];
 
-export function fmtMod(n: number) {
+export function fmtMod(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
 }
 
-export function unarmoredAC(dexScore: number) {
-  return 10 + dexAC(dexScore);
-}
-
-export function movement(base: number) {
-  return {
-    overland: Math.round((base / 5) * 10) / 10, // miles/day
-    exploration: base, // ft/turn
-    encounter: Math.round(base / 3), // ft/round
-  };
+export function unarmoredAC(dexScore: number): number {
+  return 10 + abilityMod(dexScore);
 }
