@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Character, Weapon, SpellLevel } from "./types";
-import { abilityMod, strOpenDoors, fmtMod, unarmoredAC } from "./abilities";
+import { abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS } from "./abilities";
 import { rollWeapon } from "./dice";
 
 interface Props {
@@ -51,6 +51,7 @@ function Caption({ children }: { children: React.ReactNode }) {
 export default function CharacterSheet({ character: c, canEdit, onChange, onDelete, onBack }: Props) {
   const [colorOpen, setColorOpen] = useState(false);
   const [rollResult, setRollResult] = useState<string | null>(null);
+  const [portraitUrlDraft, setPortraitUrlDraft] = useState("");
 
   const set = <K extends keyof Character>(key: K, value: Character[K]) => onChange({ ...c, [key]: value });
   const setAbility = (k: keyof Character["abilities"], v: number) => onChange({ ...c, abilities: { ...c.abilities, [k]: v } });
@@ -64,8 +65,9 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
 
   const doRoll = async (weapon: Weapon) => {
     setRollResult(`Rolling ${weapon.name || "weapon"}...`);
-    const mod = weapon.ranged ? dexMod : strMod;
-    const { summary } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, mod);
+    const hitMod = c.attackBonus + (weapon.ranged ? dexMod : strMod);
+    const dmgMod = weapon.ranged ? 0 : strMod; // only STR/melee adds to damage - never the attack bonus or DEX
+    const { summary } = await rollWeapon(weapon.name, weapon.damage, hitMod, dmgMod);
     setRollResult(summary);
   };
 
@@ -91,16 +93,16 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
 
       <div className="color-picker">
         <button className="color-current" style={{ background: c.color }} onClick={() => setColorOpen((o) => !o)} disabled={!canEdit} />
-        <span className="color-label" onClick={() => canEdit && setColorOpen((o) => !o)}>Sheet Color</span>
-        {colorOpen && (
-          <div className="color-options open">
-            {SWATCHES.map(([hex, name]) => (
-              <button key={hex} className="swatch" style={{ background: hex }} title={name}
-                onMouseEnter={() => onChange({ ...c, color: hex })}
-                onClick={() => setColorOpen(false)} />
-            ))}
-          </div>
+        {!colorOpen && (
+          <span className="color-label" onClick={() => canEdit && setColorOpen(true)}>Sheet Color</span>
         )}
+        <div className={`color-options ${colorOpen ? "open" : ""}`}>
+          {SWATCHES.map(([hex, name]) => (
+            <button key={hex} className="swatch" style={{ background: hex }} title={name}
+              onMouseEnter={() => onChange({ ...c, color: hex })}
+              onClick={() => setColorOpen(false)} />
+          ))}
+        </div>
       </div>
 
       <div className="sheet-grid">
@@ -177,8 +179,8 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
               <Caption>Attack Bonus</Caption>
             </Row2>
             <Row2>
-              <ChipRow chip="Mel" value={fmtMod(c.attackBonus + strMod)} disabled />
-              <ChipRow chip="Mis" value={fmtMod(c.attackBonus + dexMod)} disabled />
+              <ChipRow chip="Mel" value={fmtMod(strMod)} disabled />
+              <ChipRow chip="Mis" value={fmtMod(dexMod)} disabled />
             </Row2>
             <Row2>
               <Caption>STR mod. to melee att./damage</Caption>
@@ -191,6 +193,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
             <div className="weapon-row weapon-head">
               <span className="caption" style={{ margin: 0 }}>Weapon</span>
               <span className="caption" style={{ margin: 0 }}>Damage</span>
+              <span className="caption" style={{ margin: 0, width: 44 }}></span>
               <span className="caption" style={{ margin: 0, width: 30 }}></span>
             </div>
             {c.weapons.map((w, i) => (
@@ -199,6 +202,10 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
                   onChange={(e) => updateWeapon(i, { name: e.target.value })} />
                 <input className="wdmg" value={w.damage} disabled={!canEdit}
                   onChange={(e) => updateWeapon(i, { damage: e.target.value })} />
+                <button className={`weapon-type-btn ${w.ranged ? "ranged" : ""}`} disabled={!canEdit}
+                  title="Toggle melee/missile" onClick={() => updateWeapon(i, { ranged: !w.ranged })}>
+                  {w.ranged ? "MIS" : "MEL"}
+                </button>
                 <button className="roll-btn" title="Roll attack + damage" onClick={() => doRoll(w)}>&#127922;</button>
               </div>
             ))}
@@ -224,6 +231,20 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
               reader.onload = (ev) => onChange({ ...c, portrait: ev.target?.result as string, linkedTokenId: null });
               reader.readAsDataURL(file);
             }} />
+          {canEdit && (
+            <div className="portrait-url-row">
+              <input type="text" placeholder="or paste an image URL" value={portraitUrlDraft}
+                onChange={(e) => setPortraitUrlDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && portraitUrlDraft.trim()) {
+                    onChange({ ...c, portrait: portraitUrlDraft.trim(), linkedTokenId: null });
+                    setPortraitUrlDraft("");
+                  }
+                }} />
+              <button className="btn text" disabled={!portraitUrlDraft.trim()}
+                onClick={() => { onChange({ ...c, portrait: portraitUrlDraft.trim(), linkedTokenId: null }); setPortraitUrlDraft(""); }}>Set</button>
+            </div>
+          )}
 
           <div>
             <h3>Encounters</h3>
@@ -258,10 +279,10 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
             <h3>Movement</h3>
             <Caption>Base mv. rate = 120, unless encumbered</Caption>
             <Row2>
-              <ChipRow chip="Ov" value={Math.round((c.baseMove / 5) * 10) / 10} disabled />
+              <ChipRow chip="Ov" value={c.overlandMove} disabled={!canEdit} onChange={(v) => set("overlandMove", Number(v) || 0)} />
               <ChipRow chip="Ex" value={c.baseMove} disabled={!canEdit} onChange={(v) => set("baseMove", Number(v) || 0)} />
             </Row2>
-            <ChipRow chip="En" value={Math.round(c.baseMove / 3)} disabled />
+            <ChipRow chip="En" value={c.encounterMove} disabled={!canEdit} onChange={(v) => set("encounterMove", Number(v) || 0)} />
           </div>
 
           <div>
@@ -431,10 +452,14 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
   character: Character; canEdit: boolean; onChange: (c: Character) => void;
   updateSpellLevel: (i: number, patch: Partial<SpellLevel>) => void;
 }) {
+  const [showThiefTable, setShowThiefTable] = useState(false);
+  const [showTurnTable, setShowTurnTable] = useState(false);
+
   const setFeature = (k: keyof Character["classFeatures"], v: boolean) =>
     onChange({ ...c, classFeatures: { ...c.classFeatures, [k]: v } });
-  const setThiefSkill = (k: string, v: string) =>
-    onChange({ ...c, thiefSkills: { ...c.thiefSkills, [k]: v } });
+
+  const thiefValues = thiefSkillsForLevel(c.level);
+  const turnValues = turnUndeadForLevel(c.level);
 
   return (
     <div className="class-features-wrap">
@@ -453,25 +478,39 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
 
       {c.classFeatures.thief && (
         <div className="feature-block show">
-          <h4>Thief Skills (your current values)</h4>
+          <h4>Thief Skills &mdash; Level {c.level}</h4>
           <Caption>CS Climb Sheer Surfaces &middot; TR Find/Remove Traps &middot; HN Hear Noise &middot; HS Hide in Shadows &middot; MS Move Silently &middot; OL Open Locks &middot; PP Pick Pockets</Caption>
-          <div className="thief-grid">
+          <div className="compact-row">
             {THIEF_SKILL_KEYS.map((k) => (
-              <ChipRow key={k} chip={k} value={c.thiefSkills[k] || ""} disabled={!canEdit} onChange={(v) => setThiefSkill(k, v)} />
+              <div className="compact-cell" key={k}>
+                <div className="compact-chip">{k}</div>
+                <div className="compact-val">{thiefValues[k]}</div>
+              </div>
             ))}
           </div>
-          <details>
-            <summary className="caption">Thief Skills Chance of Success (full table)</summary>
-            <ThiefTable />
-          </details>
+          <button className="table-toggle" onClick={() => setShowThiefTable((s) => !s)}>
+            {showThiefTable ? "\u25be Hide" : "\u25b8 Show"} full Thief Skills table
+          </button>
+          {showThiefTable && <ThiefTable currentLevel={c.level} />}
         </div>
       )}
 
       {c.classFeatures.turnUndead && (
         <div className="feature-block show">
-          <h4>Turn Undead</h4>
-          <Caption>Hit Dice of Monster Type. T = auto-turn, D = auto-destroy, &mdash; = no effect.</Caption>
-          <TurnUndeadTable />
+          <h4>Turn Undead &mdash; Level {c.level}</h4>
+          <Caption>Roll needed vs. Hit Dice of Monster Type. T = auto-turn, D = auto-destroy, &mdash; = no effect.</Caption>
+          <div className="compact-row">
+            {TURN_UNDEAD_COLUMNS.map((col, i) => (
+              <div className="compact-cell" key={col}>
+                <div className="compact-chip">{col}</div>
+                <div className="compact-val">{turnValues[i]}</div>
+              </div>
+            ))}
+          </div>
+          <button className="table-toggle" onClick={() => setShowTurnTable((s) => !s)}>
+            {showTurnTable ? "\u25be Hide" : "\u25b8 Show"} full Turn Undead table
+          </button>
+          {showTurnTable && <TurnUndeadTable currentLevel={c.level} />}
         </div>
       )}
 
@@ -509,7 +548,7 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
   );
 }
 
-function ThiefTable() {
+function ThiefTable({ currentLevel }: { currentLevel?: number }) {
   const rows = [
     [1, 87, 10, "1\u20132", 10, 20, 15, 20], [2, 88, 15, "1\u20132", 15, 25, 20, 25],
     [3, 89, 20, "1\u20133", 20, 25, 30, 30], [4, 90, 25, "1\u20133", 25, 30, 30, 35],
@@ -523,13 +562,13 @@ function ThiefTable() {
     <table className="turn-table">
       <thead><tr><th>Level</th><th>CS</th><th>TR</th><th>HN</th><th>HS</th><th>MS</th><th>OL</th><th>PP</th></tr></thead>
       <tbody>
-        {rows.map((r) => <tr key={r[0]}>{r.map((v, i) => <td key={i}>{v}</td>)}</tr>)}
+        {rows.map((r) => <tr key={r[0]} className={r[0] === currentLevel ? "current-row" : ""}>{r.map((v, i) => <td key={i}>{v}</td>)}</tr>)}
       </tbody>
     </table>
   );
 }
 
-function TurnUndeadTable() {
+function TurnUndeadTable({ currentLevel }: { currentLevel?: number }) {
   const rows: (string | number)[][] = [
     [1, 7, 9, 11, "\u2014", "\u2014", "\u2014", "\u2014", "\u2014"],
     [2, 7, 9, 11, "\u2014", "\u2014", "\u2014", "\u2014", "\u2014"],
@@ -547,7 +586,11 @@ function TurnUndeadTable() {
     <table className="turn-table">
       <thead><tr><th>Lvl</th><th>1</th><th>2</th><th>2*</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7-9</th></tr></thead>
       <tbody>
-        {rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j}>{v}</td>)}</tr>)}
+        {rows.map((r, i) => {
+          const rowLevel = i + 1 >= 11 ? 11 : i + 1;
+          const isCurrent = currentLevel !== undefined && (currentLevel >= 11 ? rowLevel === 11 : rowLevel === currentLevel);
+          return <tr key={i} className={isCurrent ? "current-row" : ""}>{r.map((v, j) => <td key={j}>{v}</td>)}</tr>;
+        })}
       </tbody>
     </table>
   );

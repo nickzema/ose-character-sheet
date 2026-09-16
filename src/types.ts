@@ -85,6 +85,8 @@ export interface Character {
   findTrap: string;
 
   baseMove: number;
+  overlandMove: number;
+  encounterMove: number;
 
   languages: string;
   literate: boolean;
@@ -101,7 +103,6 @@ export interface Character {
     turnUndead: boolean;
     spells: boolean;
   };
-  thiefSkills: Record<string, string>; // CS/TR/HN/HS/MS/OL/PP -> value
   spellLevels: SpellLevel[]; // always 6 entries, levels 1-6
 
   otherNotes: string;
@@ -147,6 +148,8 @@ export function blankCharacter(id: string, ownerId: string): Character {
     findTrap: "1-in-6",
 
     baseMove: 120,
+    overlandMove: 24,
+    encounterMove: 40,
 
     languages: "Common",
     literate: true,
@@ -163,7 +166,6 @@ export function blankCharacter(id: string, ownerId: string): Character {
     coins: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 },
 
     classFeatures: { thief: false, turnUndead: false, spells: false },
-    thiefSkills: { CS: "", TR: "", HN: "", HS: "", MS: "", OL: "", PP: "" },
     spellLevels: Array.from({ length: 6 }, () => ({ slots: 0, used: 0, known: "" })),
 
     otherNotes: "",
@@ -196,7 +198,6 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
     },
     coins: { ...blank.coins, ...raw.coins },
     classFeatures: { ...blank.classFeatures, ...raw.classFeatures },
-    thiefSkills: { ...blank.thiefSkills, ...raw.thiefSkills },
     spellLevels: raw.spellLevels?.length === 6 ? raw.spellLevels : blank.spellLevels,
     weapons: raw.weapons?.length ? raw.weapons : blank.weapons,
   };

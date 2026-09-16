@@ -73,7 +73,6 @@ textarea{
   width:100%; font-family:'Source Serif 4', serif; font-size:13px;
   background:var(--paper); border:1.5px solid var(--ink); padding:8px;
   color:var(--ink); resize:vertical; line-height:1.6;
-  background-image: repeating-linear-gradient(transparent, transparent 27px, #d8d4c8 28px);
 }
 textarea:disabled{ opacity:1; color:var(--ink); }
 textarea.locked{ resize:none; }
@@ -121,8 +120,12 @@ textarea.locked{ resize:none; }
 .color-picker{ display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap; position:relative; }
 .color-current{ width:26px; height:26px; border:1.5px solid var(--ink); cursor:pointer; padding:0; }
 .color-label{ font-family:'Oswald',sans-serif; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--caption); cursor:pointer; }
-.color-options{ display:flex; gap:6px; }
-.swatch{ width:22px; height:22px; border:1.5px solid var(--ink); cursor:pointer; padding:0; }
+.color-options{
+  display:flex; gap:6px; max-width:0; opacity:0; overflow:hidden;
+  transition: max-width 0.28s ease, opacity 0.2s ease;
+}
+.color-options.open{ max-width:320px; opacity:1; }
+.swatch{ width:22px; height:22px; flex-shrink:0; border:1.5px solid var(--ink); cursor:pointer; padding:0; }
 
 .chip-toggle{ cursor:pointer; }
 
@@ -137,13 +140,21 @@ textarea.locked{ resize:none; }
 .twoup > div{ flex:1; min-width:0; }
 
 .portrait-box{
-  border:1.5px solid var(--ink); height:130px; display:flex; align-items:center; justify-content:center;
+  border:1.5px solid var(--ink); aspect-ratio: 1 / 1; width:100%; display:flex; align-items:center; justify-content:center;
   text-align:center; padding:8px; cursor:pointer; background-size:cover; background-position:center; overflow:hidden;
 }
 .remove-portrait{
   font-family:'Oswald',sans-serif; font-size:10px; text-transform:uppercase; letter-spacing:0.04em;
   background:var(--ink); color:var(--chip-text); border:none; padding:4px 8px; cursor:pointer;
+  opacity:0; transition: opacity 0.12s ease;
 }
+.portrait-box:hover .remove-portrait{ opacity:1; }
+.portrait-url-row{ display:flex; gap:6px; margin-top:6px; }
+.portrait-url-row input{
+  flex:1; min-width:0; border:1.5px solid var(--ink); background:var(--paper);
+  font-family:'Source Serif 4', serif; font-size:12px; padding:5px 6px; color:var(--ink);
+}
+.portrait-url-row .btn.text{ flex-shrink:0; }
 .literate-check{
   display:flex; justify-content:flex-end; align-items:center; gap:6px; margin-top:5px;
   font-family:'Source Serif 4', serif; font-style:italic; font-size:12px; color:var(--ink); cursor:pointer;
@@ -158,6 +169,11 @@ textarea.locked{ resize:none; }
 }
 .weapon-row .wname{ flex:1; min-width:0; }
 .weapon-row .wdmg{ width:64px; flex-shrink:0; text-align:center; }
+.weapon-type-btn{
+  width:44px; height:30px; flex-shrink:0; background:var(--paper); color:var(--ink);
+  border:1.5px solid var(--ink); cursor:pointer; font-family:'Oswald',sans-serif; font-weight:600; font-size:10px;
+}
+.weapon-type-btn.ranged{ background:var(--ink); color:var(--chip-text); }
 .roll-btn{
   width:30px; height:30px; flex-shrink:0; background:var(--ink); color:var(--chip-text);
   border:none; cursor:pointer; font-size:15px;
@@ -217,8 +233,20 @@ textarea.locked{ resize:none; }
 .feature-block{ margin-top:10px; }
 .feature-block h4{ font-family:'Oswald',sans-serif; font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:0.04em; margin:0 0 6px; }
 
-.thief-grid{ display:flex; flex-wrap:wrap; gap:8px; }
-.thief-grid .chip-row{ flex:0 0 calc(33.33% - 6px); }
+.compact-row{ display:flex; gap:4px; }
+.compact-cell{ flex:1; min-width:0; border:1.5px solid var(--ink); text-align:center; }
+.compact-chip{
+  background:var(--ink); color:var(--chip-text); font-family:'Oswald',sans-serif;
+  font-weight:600; font-size:10px; letter-spacing:0.02em; padding:3px 0;
+}
+.compact-val{ font-family:'Source Serif 4', serif; font-size:12px; padding:4px 2px; white-space:nowrap; }
+.table-toggle{
+  font-family:'Oswald',sans-serif; font-weight:600; font-size:11px; text-transform:uppercase;
+  letter-spacing:0.03em; background:var(--paper); color:var(--ink); border:1.5px solid var(--ink);
+  padding:6px 10px; cursor:pointer; margin:8px 0;
+}
+.table-toggle:hover{ background:var(--ink); color:var(--chip-text); }
+.turn-table .current-row td{ background:var(--ink); color:var(--chip-text); font-weight:700; }
 
 .turn-table{ border-collapse:collapse; width:100%; font-size:11px; margin-top:4px; }
 .turn-table th, .turn-table td{ border:1px solid var(--ink); text-align:center; padding:3px 2px; }

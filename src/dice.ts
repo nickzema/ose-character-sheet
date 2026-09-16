@@ -98,17 +98,19 @@ export async function rollNotation(notation: string, label: string): Promise<{ s
   });
 }
 
-/** Roll an attack + damage pair for a weapon, using the character's modifiers. */
+/** Roll an attack + damage pair for a weapon, using the character's modifiers.
+ *  hitMod is added to the attack roll (attack bonus + STR or DEX, per weapon).
+ *  dmgMod is added to the damage roll - pass 0 for ranged weapons, since only
+ *  STR (melee) adds to damage in OSE, never the attack bonus or DEX. */
 export async function rollWeapon(
   weaponName: string,
   damage: string,
-  attackBonus: number,
-  abilityMod: number
+  hitMod: number,
+  dmgMod: number
 ): Promise<{ summary: string; total: number }> {
   const dmg = damage.trim().toLowerCase().startsWith("d") ? `1${damage.trim()}` : damage.trim();
-  const atkMod = attackBonus + abilityMod;
-  const atkPart = `1d20${atkMod >= 0 ? "+" : ""}${atkMod} #${weaponName || "Attack"}`;
-  const dmgPart = `${dmg}${abilityMod >= 0 ? "+" : ""}${abilityMod} #Damage`;
+  const atkPart = `1d20${hitMod >= 0 ? "+" : ""}${hitMod} #${weaponName || "Attack"}`;
+  const dmgPart = dmgMod !== 0 ? `${dmg}${dmgMod >= 0 ? "+" : ""}${dmgMod} #Damage` : `${dmg} #Damage`;
   return rollNotation(`${atkPart}, ${dmgPart}`, weaponName || "Weapon");
 }
 
