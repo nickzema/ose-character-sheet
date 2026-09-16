@@ -3,6 +3,7 @@ import OBR from "@owlbear-rodeo/sdk";
 import { usePlayer, useRoster } from "./useOBR";
 import { blankCharacter, type Character } from "./types";
 import { setupContextMenu } from "./contextMenu";
+import { syncStatBubbles } from "./statBubbles";
 import CharacterList from "./CharacterList";
 import CharacterSheet from "./CharacterSheet";
 import AssignPortraitPopover from "./AssignPortraitPopover";
@@ -56,6 +57,7 @@ export default function App() {
 
   const updateCharacter = (updated: Character) => {
     saveRoster(roster.map((c) => (c.id === updated.id ? updated : c)));
+    syncStatBubbles(updated);
   };
 
   const deleteCharacter = (id: string) => {

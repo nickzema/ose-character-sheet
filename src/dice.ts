@@ -103,19 +103,31 @@ export async function rollNotation(notation: string, label: string): Promise<{ s
   });
 }
 
-/** Roll an attack + damage pair for a weapon, using the character's modifiers.
- *  hitMod is added to the attack roll (attack bonus + STR or DEX, per weapon).
- *  dmgMod is added to the damage roll - pass 0 for ranged weapons, since only
- *  STR (melee) adds to damage in OSE, never the attack bonus or DEX. */
+/** Builds "+2+2" style notation from separate modifier sources, so the roll
+ *  shows where each part came from instead of a single pre-summed number.
+ *  Zero terms are dropped; if everything's zero this returns "". */
+export function termString(terms: number[]): string {
+  return terms
+    .filter((t) => t !== 0)
+    .map((t) => (t >= 0 ? `+${t}` : `${t}`))
+    .join("");
+}
+
+/** Roll an attack + damage pair for a weapon. attackBonus and hitAbilityMod
+ *  are kept as separate addends (not pre-summed) so the roll notation shows
+ *  each source, e.g. "1d20+2+2" instead of "1d20+4". dmgMod is added to the
+ *  damage roll - pass 0 for ranged weapons, since only STR (melee) adds to
+ *  damage in OSE, never the attack bonus or DEX. */
 export async function rollWeapon(
   weaponName: string,
   damage: string,
-  hitMod: number,
+  attackBonus: number,
+  hitAbilityMod: number,
   dmgMod: number
 ): Promise<{ summary: string; total: number }> {
   const dmg = damage.trim().toLowerCase().startsWith("d") ? `1${damage.trim()}` : damage.trim();
-  const atkPart = `1d20${hitMod >= 0 ? "+" : ""}${hitMod} #${weaponName || "Attack"}`;
-  const dmgPart = dmgMod !== 0 ? `${dmg}${dmgMod >= 0 ? "+" : ""}${dmgMod} #Damage` : `${dmg} #Damage`;
+  const atkPart = `1d20${termString([attackBonus, hitAbilityMod])} #${weaponName || "Attack"}`;
+  const dmgPart = `${dmg}${termString([dmgMod])} #Damage`;
   return rollNotation(`${atkPart}, ${dmgPart}`, weaponName || "Weapon");
 }
 
@@ -126,18 +138,20 @@ async function localRoll(notation: string, label: string): Promise<{ summary: st
 
   parts.forEach((part, i) => {
     const withoutLabel = part.split("#")[0].trim();
-    const match = withoutLabel.match(/^(\d+)d(\d+)([+-]\d+)?$/i);
+    const match = withoutLabel.match(/^(\d+)d(\d+)((?:[+-]\d+)*)$/i);
     if (!match) {
       summaries.push(part);
       return;
     }
     const count = parseInt(match[1], 10);
     const sides = parseInt(match[2], 10);
-    const mod = match[3] ? parseInt(match[3], 10) : 0;
+    const modTerms = match[3] ? match[3].match(/[+-]\d+/g) || [] : [];
+    const mod = modTerms.reduce((sum, t) => sum + parseInt(t, 10), 0);
     const rolls = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
     const sum = rolls.reduce((a, b) => a + b, 0) + mod;
     if (i === 0) firstTotal = sum;
-    summaries.push(`[${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${sum}`);
+    const modLabel = modTerms.length ? modTerms.join("") : "";
+    summaries.push(`[${rolls.join(", ")}]${modLabel} = ${sum}`);
   });
 
   const summary = `${label} (local roll, Dice+ not detected): ${summaries.join(" | ")}`;

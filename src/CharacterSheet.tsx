@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Character, Weapon, SpellLevel } from "./types";
 import { abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS } from "./abilities";
-import { rollWeapon, rollNotation } from "./dice";
+import { rollWeapon, rollNotation, termString } from "./dice";
 
 interface RollState {
   label: string;
@@ -157,7 +157,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
   };
 
   const rollMelMis = (label: string, mod: number) =>
-    rollAndShow(label, `1d20${c.attackBonus + mod >= 0 ? "+" : ""}${c.attackBonus + mod}`, (total) => ({
+    rollAndShow(label, `1d20${termString([c.attackBonus, mod])}`, (total) => ({
       detail: `${total}`,
       outcome: "neutral",
     }));
@@ -205,9 +205,9 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
 
   const doRoll = async (weapon: Weapon) => {
     setRoll({ label: weapon.name || "Weapon", detail: "Rolling...", outcome: "neutral" });
-    const hitMod = c.attackBonus + (weapon.ranged ? dexMod : strMod);
+    const hitAbilityMod = weapon.ranged ? dexMod : strMod;
     const dmgMod = weapon.ranged ? 0 : strMod; // only STR/melee adds to damage - never the attack bonus or DEX
-    const { summary } = await rollWeapon(weapon.name, weapon.damage, hitMod, dmgMod);
+    const { summary } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, hitAbilityMod, dmgMod);
     setRoll({ label: weapon.name || "Weapon", detail: summary, outcome: "neutral" });
   };
 
