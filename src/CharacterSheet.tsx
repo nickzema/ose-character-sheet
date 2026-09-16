@@ -5,9 +5,16 @@ import { rollWeapon, rollNotation, termString } from "./dice";
 
 interface RollState {
   label: string;
-  detail: string;
   outcome: "success" | "fail" | "neutral";
+  rolled?: number;
+  target?: number;
+  detail?: string; // used when there's no single rolled/target pair (weapon attack+damage, "Rolling...", auto-turn, etc.)
+  fallbackNote?: string;
 }
+
+type ModalState =
+  | { type: "confirm"; message: string; yesLabel?: string; noLabel?: string; resolve: (v: boolean) => void }
+  | { type: "prompt"; message: string; defaultValue: string; resolve: (v: number | null) => void };
 
 function parseXin6(s: string): number {
   const m = s.match(/^\s*(\d+)/);
@@ -62,10 +69,60 @@ function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollT
 
 function RollBanner({ roll, onDismiss }: { roll: RollState | null; onDismiss: () => void }) {
   if (!roll) return null;
+  const showOutcome = roll.rolled !== undefined && roll.outcome !== "neutral";
   return (
     <div className={`roll-banner ${roll.outcome}`}>
       <button className="roll-dismiss" onClick={onDismiss} title="Dismiss">&times;</button>
-      <b>{roll.label}:</b> {roll.detail}
+      <div className="roll-label">{roll.label}</div>
+      {roll.rolled !== undefined ? (
+        <div className="roll-numbers">
+          {roll.rolled}
+          {roll.target !== undefined && <><span className="vs">vs</span>{roll.target}</>}
+        </div>
+      ) : (
+        <div className="roll-detail-text">{roll.detail}</div>
+      )}
+      {showOutcome && (
+        <div className={`roll-outcome ${roll.outcome}`}>
+          {roll.outcome === "success" ? <>&#10003; SUCCESS</> : <>&#10007; FAIL</>}
+        </div>
+      )}
+      {roll.fallbackNote && <div className="roll-fallback-note">{roll.fallbackNote}</div>}
+    </div>
+  );
+}
+
+function AppModal({ state }: { state: ModalState }) {
+  const [inputVal, setInputVal] = useState(state.type === "prompt" ? state.defaultValue : "");
+
+  return (
+    <div className="modal-backdrop" onClick={() => state.type === "confirm" ? state.resolve(false) : state.resolve(null)}>
+      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <p className="modal-message">{state.message}</p>
+        {state.type === "prompt" && (
+          <input
+            type="number"
+            className="modal-input"
+            value={inputVal}
+            autoFocus
+            onChange={(e) => setInputVal(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") state.resolve(parseInt(inputVal, 10) || 0); }}
+          />
+        )}
+        <div className="modal-actions">
+          {state.type === "confirm" ? (
+            <>
+              <button className="btn modal-btn" onClick={() => state.resolve(true)}>{state.yesLabel || "Yes"}</button>
+              <button className="btn text modal-btn" onClick={() => state.resolve(false)}>{state.noLabel || "No"}</button>
+            </>
+          ) : (
+            <>
+              <button className="btn modal-btn" onClick={() => state.resolve(parseInt(inputVal, 10) || 0)}>Roll</button>
+              <button className="btn text modal-btn" onClick={() => state.resolve(null)}>Cancel</button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -94,23 +151,40 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
   const chaMod = abilityMod(c.abilities.cha);
 
   const [roll, setRoll] = useState<RollState | null>(null);
+  const [modal, setModal] = useState<ModalState | null>(null);
+
+  const askYesNo = (message: string, yesLabel?: string, noLabel?: string) =>
+    new Promise<boolean>((resolve) => {
+      setModal({ type: "confirm", message, yesLabel, noLabel, resolve: (v) => { setModal(null); resolve(v); } });
+    });
+
+  const askNumber = (message: string, defaultValue = "0") =>
+    new Promise<number | null>((resolve) => {
+      setModal({ type: "prompt", message, defaultValue, resolve: (v) => { setModal(null); resolve(v); } });
+    });
+
+  const fallbackNoteFor = (reason?: "not-detected" | "timeout") => {
+    if (!reason) return undefined;
+    return reason === "timeout"
+      ? "Dice+ didn't respond in time \u2014 this is a local roll, not Dice+'s result."
+      : "Dice+ not detected in this room \u2014 local roll.";
+  };
 
   const rollAndShow = async (
     label: string,
     notation: string,
-    interpret: (total: number) => { detail: string; outcome: "success" | "fail" | "neutral" }
+    interpret: (total: number) => { outcome: RollState["outcome"]; rolled?: number; target?: number; detail?: string }
   ) => {
     setRoll({ label, detail: "Rolling...", outcome: "neutral" });
-    const { total } = await rollNotation(notation, label);
-    setRoll({ label, ...interpret(total) });
+    const { total, usedFallback, fallbackReason } = await rollNotation(notation, label);
+    setRoll({ label, ...interpret(total), fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined });
     return total;
   };
 
   // STR/INT/WIS/DEX/CON/CHA: 1d20, success on a roll <= the score itself.
   const rollAbility = (abbr: string, score: number) =>
     rollAndShow(`${abbr} Check`, "1d20", (total) => ({
-      detail: `Rolled ${total} vs ${score} \u2014 ${total <= score ? "Success" : "Fail"}`,
-      outcome: total <= score ? "success" : "fail",
+      rolled: total, target: score, outcome: total <= score ? "success" : "fail",
     }));
 
   // Saving throws: 1d20 (+WIS mod if vs. magic), success on a roll >= the save value.
@@ -119,47 +193,41 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
   const rollSave = async (label: string, value: number, alwaysMagic: boolean, askMagic: boolean) => {
     let vsMagic = alwaysMagic;
     if (askMagic) {
-      vsMagic = window.confirm(`Is this save vs. Magic? (adds WIS ${fmtMod(wisMod)} if yes)`);
+      vsMagic = await askYesNo(`Add WIS modifier to Saves vs. Magic? (${fmtMod(wisMod)})`);
     }
     const mod = vsMagic ? wisMod : 0;
     const notation = mod !== 0 ? `1d20${mod >= 0 ? "+" : ""}${mod}` : "1d20";
     await rollAndShow(`${label} Save`, notation, (total) => ({
-      detail: `Rolled ${total} vs ${value} \u2014 ${total >= value ? "Success" : "Fail"}`,
-      outcome: total >= value ? "success" : "fail",
+      rolled: total, target: value, outcome: total >= value ? "success" : "fail",
     }));
   };
 
   const rollInit = () => rollAndShow("Initiative", `1d6${dexMod >= 0 ? "+" : ""}${dexMod}`, (total) => ({
-    detail: `${total}`,
-    outcome: "neutral",
+    rolled: total, outcome: "neutral",
   }));
 
   const rollReaction = (label: string) =>
     rollAndShow(label, `2d6${chaMod >= 0 ? "+" : ""}${chaMod}`, (total) => ({
-      detail: `${total}`,
-      outcome: "neutral",
+      rolled: total, outcome: "neutral",
     }));
 
   // Loyalty: 2d6, success on a roll <= the loyalty value (a morale-style check).
   const rollLoyalty = () =>
     rollAndShow("Loyalty", "2d6", (total) => ({
-      detail: `Rolled ${total} vs ${c.retainerLoyalty} \u2014 ${total <= c.retainerLoyalty ? "Success" : "Fail"}`,
-      outcome: total <= c.retainerLoyalty ? "success" : "fail",
+      rolled: total, target: c.retainerLoyalty, outcome: total <= c.retainerLoyalty ? "success" : "fail",
     }));
 
   // Exploration x-in-6 checks: 1d6, success on a roll <= the threshold.
   const rollXin6 = (label: string, thresholdText: string) => {
     const threshold = parseXin6(thresholdText);
     return rollAndShow(label, "1d6", (total) => ({
-      detail: `Rolled ${total} vs ${threshold}-in-6 \u2014 ${total <= threshold ? "Success" : "Fail"}`,
-      outcome: total <= threshold ? "success" : "fail",
+      rolled: total, target: threshold, outcome: total <= threshold ? "success" : "fail",
     }));
   };
 
   const rollMelMis = (label: string, mod: number) =>
     rollAndShow(label, `1d20${termString([c.attackBonus, mod])}`, (total) => ({
-      detail: `${total}`,
-      outcome: "neutral",
+      rolled: total, outcome: "neutral",
     }));
 
   // Thief skills: percentage skills are d100 roll-under; Hear Noise is x-in-6.
@@ -167,8 +235,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
     if (key === "HN") return rollXin6("Hear Noise", `${parseHearNoiseRange(displayValue)}-in-6`);
     const pct = parseInt(displayValue, 10) || 0;
     return rollAndShow(key, "1d100", (total) => ({
-      detail: `Rolled ${total} vs ${pct}% \u2014 ${total <= pct ? "Success" : "Fail"}`,
-      outcome: total <= pct ? "success" : "fail",
+      rolled: total, target: pct, outcome: total <= pct ? "success" : "fail",
     }));
   };
 
@@ -187,18 +254,20 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
       return;
     }
     const target = value as number;
-    const modInput = window.prompt("Any situational modifier to this Turn Undead check?", "0");
-    if (modInput === null) return;
-    const mod = parseInt(modInput, 10) || 0;
+    const mod = await askNumber("Any situational modifier to this Turn Undead check?", "0");
+    if (mod === null) return;
     const notation = mod !== 0 ? `2d6${mod >= 0 ? "+" : ""}${mod}` : "2d6";
     const total = await rollAndShow(`Turn Undead (HD ${col})`, notation, (t) => ({
-      detail: `Rolled ${t} vs ${target} \u2014 ${t >= target ? "Success" : "Fail"}`,
-      outcome: t >= target ? "success" : "fail",
+      rolled: t, target, outcome: t >= target ? "success" : "fail",
     }));
     if (total >= target) {
       setTimeout(async () => {
-        const { total: hdTotal } = await rollNotation("2d6", "HD Turned");
-        setRoll({ label: `Turn Undead (HD ${col})`, detail: `Success \u2014 turns ${hdTotal} HD worth of undead`, outcome: "success" });
+        const { total: hdTotal, usedFallback, fallbackReason } = await rollNotation("2d6", "HD Turned");
+        setRoll({
+          label: `Turn Undead (HD ${col})`, outcome: "success",
+          detail: `Success \u2014 turns ${hdTotal} HD worth of undead`,
+          fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined,
+        });
       }, 1000);
     }
   };
@@ -207,8 +276,11 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
     setRoll({ label: weapon.name || "Weapon", detail: "Rolling...", outcome: "neutral" });
     const hitAbilityMod = weapon.ranged ? dexMod : strMod;
     const dmgMod = weapon.ranged ? 0 : strMod; // only STR/melee adds to damage - never the attack bonus or DEX
-    const { summary } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, hitAbilityMod, dmgMod);
-    setRoll({ label: weapon.name || "Weapon", detail: summary, outcome: "neutral" });
+    const { summary, usedFallback, fallbackReason } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, hitAbilityMod, dmgMod);
+    setRoll({
+      label: weapon.name || "Weapon", detail: summary, outcome: "neutral",
+      fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined,
+    });
   };
 
   const updateWeapon = (i: number, patch: Partial<Weapon>) => {
@@ -246,6 +318,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
       </div>
 
       <RollBanner roll={roll} onDismiss={() => setRoll(null)} />
+      {modal && <AppModal state={modal} />}
 
       <div className="sheet-grid">
         <div className="col-left">

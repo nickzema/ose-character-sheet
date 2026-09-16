@@ -17,6 +17,18 @@ interface RollResult {
   groups: DiceGroup[];
 }
 
+export interface RollOutcome {
+  summary: string;
+  total: number;
+  /** True whenever this specific roll did NOT come from Dice+ - either
+   *  because Dice+ isn't in the room, or (rare) because it didn't respond
+   *  in time. The UI should always say so when this is true, rather than
+   *  showing a number that might silently disagree with what Dice+ itself
+   *  displays a moment later. */
+  usedFallback: boolean;
+  fallbackReason?: "not-detected" | "timeout";
+}
+
 let readyCache: boolean | null = null;
 
 /** Check whether Dice+ is installed and responding. A positive result is
@@ -48,14 +60,18 @@ export async function isDicePlusReady(): Promise<boolean> {
 }
 
 /**
- * Send a roll to Dice+ and resolve with its result. Falls back to a local
- * Math.random roll (parsing only the simple "NdM+K" shapes this app sends)
- * if Dice+ isn't installed, so rolling still works either way.
+ * Send a roll to Dice+ and resolve with its result. Once Dice+ is confirmed
+ * present, this WAITS for its real response rather than racing a short
+ * timeout - a short timeout that gives up and substitutes a different local
+ * random roll is exactly what caused rolls to visibly disagree with what
+ * Dice+ actually showed. The 20s ceiling below is just a sanity net for a
+ * genuinely broken connection, not a normal code path.
  */
-export async function rollNotation(notation: string, label: string): Promise<{ summary: string; total: number }> {
+export async function rollNotation(notation: string, _label: string): Promise<RollOutcome> {
   const ready = await isDicePlusReady();
   if (!ready) {
-    return localRoll(notation, label);
+    const r = await localRoll(notation);
+    return { ...r, usedFallback: true, fallbackReason: "not-detected" };
   }
 
   const rollId = `roll_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -68,7 +84,7 @@ export async function rollNotation(notation: string, label: string): Promise<{ s
       if (data.rollId !== rollId) return;
       unsubResult();
       unsubError();
-      resolve({ summary: data.result.rollSummary, total: data.result.totalValue });
+      resolve({ summary: data.result.rollSummary, total: data.result.totalValue, usedFallback: false });
     });
     const unsubError = OBR.broadcast.onMessage(`${SOURCE}/roll-error`, (event) => {
       const data = event.data as { rollId: string; error: string };
@@ -76,7 +92,7 @@ export async function rollNotation(notation: string, label: string): Promise<{ s
       unsubResult();
       unsubError();
       // Dice+ reported an error rolling our own notation - fall back locally.
-      localRoll(notation, label).then(resolve);
+      localRoll(notation).then((r) => resolve({ ...r, usedFallback: true, fallbackReason: "not-detected" }));
     });
 
     OBR.broadcast.sendMessage(
@@ -94,12 +110,14 @@ export async function rollNotation(notation: string, label: string): Promise<{ s
       { destination: "ALL" }
     );
 
-    // Dice+ not responding for this particular roll - don't hang forever.
+    // Sanity net only - Dice+ is confirmed present, so this should not
+    // normally fire. If it does, say so honestly instead of quietly
+    // substituting a different random result.
     setTimeout(() => {
       unsubResult();
       unsubError();
-      localRoll(notation, label).then(resolve);
-    }, 4000);
+      localRoll(notation).then((r) => resolve({ ...r, usedFallback: true, fallbackReason: "timeout" }));
+    }, 20000);
   });
 }
 
@@ -124,14 +142,14 @@ export async function rollWeapon(
   attackBonus: number,
   hitAbilityMod: number,
   dmgMod: number
-): Promise<{ summary: string; total: number }> {
+): Promise<RollOutcome> {
   const dmg = damage.trim().toLowerCase().startsWith("d") ? `1${damage.trim()}` : damage.trim();
   const atkPart = `1d20${termString([attackBonus, hitAbilityMod])} #${weaponName || "Attack"}`;
   const dmgPart = `${dmg}${termString([dmgMod])} #Damage`;
   return rollNotation(`${atkPart}, ${dmgPart}`, weaponName || "Weapon");
 }
 
-async function localRoll(notation: string, label: string): Promise<{ summary: string; total: number }> {
+async function localRoll(notation: string): Promise<{ summary: string; total: number }> {
   const parts = notation.split(",").map((p) => p.trim());
   const summaries: string[] = [];
   let firstTotal = 0;
@@ -154,7 +172,6 @@ async function localRoll(notation: string, label: string): Promise<{ summary: st
     summaries.push(`[${rolls.join(", ")}]${modLabel} = ${sum}`);
   });
 
-  const summary = `${label} (local roll, Dice+ not detected): ${summaries.join(" | ")}`;
-  OBR.notification.show(summary);
+  const summary = `${summaries.join(" | ")}`;
   return { summary, total: firstTotal };
 }
