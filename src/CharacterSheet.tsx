@@ -60,10 +60,11 @@ function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollT
   );
 }
 
-function RollBanner({ roll }: { roll: RollState | null }) {
+function RollBanner({ roll, onDismiss }: { roll: RollState | null; onDismiss: () => void }) {
   if (!roll) return null;
   return (
     <div className={`roll-banner ${roll.outcome}`}>
+      <button className="roll-dismiss" onClick={onDismiss} title="Dismiss">&times;</button>
       <b>{roll.label}:</b> {roll.detail}
     </div>
   );
@@ -171,25 +172,33 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
     }));
   };
 
-  // Turn Undead: prompt for a situational modifier, roll 2d6+mod, success on a
-  // roll >= the easiest (lowest) numeric target on the current level's row.
-  // On success, roll a second plain 2d6 a moment later to show HD turned.
-  const rollTurnUndead = async () => {
+  // Turn Undead: click the HD column matching what's actually being faced.
+  // T/D resolve instantly (no roll); a number prompts for a modifier, rolls
+  // 2d6+mod against that specific target, then a follow-up 2d6 on success
+  // shows HD turned; "\u2014" means it can never be turned.
+  const rollTurnUndead = async (col: string, value: string | number) => {
+    if (value === "\u2014") {
+      setRoll({ label: `Turn Undead (HD ${col})`, detail: "Cannot be turned", outcome: "fail" });
+      return;
+    }
+    if (value === "T" || value === "D") {
+      const verb = value === "T" ? "Auto-Turn" : "Auto-Destroy";
+      setRoll({ label: `Turn Undead (HD ${col})`, detail: `${verb}! No roll needed.`, outcome: "success" });
+      return;
+    }
+    const target = value as number;
     const modInput = window.prompt("Any situational modifier to this Turn Undead check?", "0");
     if (modInput === null) return;
     const mod = parseInt(modInput, 10) || 0;
-    const row = turnUndeadForLevel(c.level);
-    const numeric = row.filter((v): v is number => typeof v === "number");
-    const target = numeric.length ? Math.min(...numeric) : 7;
     const notation = mod !== 0 ? `2d6${mod >= 0 ? "+" : ""}${mod}` : "2d6";
-    const total = await rollAndShow("Turn Undead", notation, (t) => ({
+    const total = await rollAndShow(`Turn Undead (HD ${col})`, notation, (t) => ({
       detail: `Rolled ${t} vs ${target} \u2014 ${t >= target ? "Success" : "Fail"}`,
       outcome: t >= target ? "success" : "fail",
     }));
     if (total >= target) {
       setTimeout(async () => {
         const { total: hdTotal } = await rollNotation("2d6", "HD Turned");
-        setRoll({ label: "Turn Undead", detail: `Success \u2014 turns ${hdTotal} HD worth of undead`, outcome: "success" });
+        setRoll({ label: `Turn Undead (HD ${col})`, detail: `Success \u2014 turns ${hdTotal} HD worth of undead`, outcome: "success" });
       }, 1000);
     }
   };
@@ -236,7 +245,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
         </div>
       </div>
 
-      <RollBanner roll={roll} />
+      <RollBanner roll={roll} onDismiss={() => setRoll(null)} />
 
       <div className="sheet-grid">
         <div className="col-left">
@@ -585,7 +594,7 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
   character: Character; canEdit: boolean; onChange: (c: Character) => void;
   updateSpellLevel: (i: number, patch: Partial<SpellLevel>) => void;
   onRollThiefSkill: (key: string, displayValue: string) => void;
-  onRollTurnUndead: () => void;
+  onRollTurnUndead: (col: string, value: string | number) => void;
 }) {
   const [showThiefTable, setShowThiefTable] = useState(false);
   const [showTurnTable, setShowTurnTable] = useState(false);
@@ -596,22 +605,26 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
   const thiefValues = thiefSkillsForLevel(c.level);
   const turnValues = turnUndeadForLevel(c.level);
 
+  const showThief = c.classFeatures.thief;
+  const showTurnUndead = c.classFeatures.cleric;
+  const showSpells = c.classFeatures.cleric || c.classFeatures.magicUser;
+
   return (
     <div className="class-features-wrap">
       <h3>Class Features</h3>
       <div className="class-features">
         <label className="feature-check">
-          <input type="checkbox" checked={c.classFeatures.thief} disabled={!canEdit} onChange={(e) => setFeature("thief", e.target.checked)} /> Thief Skills
+          <input type="checkbox" checked={c.classFeatures.cleric} disabled={!canEdit} onChange={(e) => setFeature("cleric", e.target.checked)} /> Cleric
         </label>
         <label className="feature-check">
-          <input type="checkbox" checked={c.classFeatures.turnUndead} disabled={!canEdit} onChange={(e) => setFeature("turnUndead", e.target.checked)} /> Turn Undead
+          <input type="checkbox" checked={c.classFeatures.magicUser} disabled={!canEdit} onChange={(e) => setFeature("magicUser", e.target.checked)} /> Magic-User
         </label>
         <label className="feature-check">
-          <input type="checkbox" checked={c.classFeatures.spells} disabled={!canEdit} onChange={(e) => setFeature("spells", e.target.checked)} /> Spells
+          <input type="checkbox" checked={c.classFeatures.thief} disabled={!canEdit} onChange={(e) => setFeature("thief", e.target.checked)} /> Thief
         </label>
       </div>
 
-      {c.classFeatures.thief && (
+      {showThief && (
         <div className="feature-block show">
           <h4>Thief Skills &mdash; Level {c.level}</h4>
           <Caption>CS Climb Sheer Surfaces &middot; TR Find/Remove Traps &middot; HN Hear Noise &middot; HS Hide in Shadows &middot; MS Move Silently &middot; OL Open Locks &middot; PP Pick Pockets</Caption>
@@ -630,21 +643,18 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
         </div>
       )}
 
-      {c.classFeatures.turnUndead && (
+      {showTurnUndead && (
         <div className="feature-block show">
           <h4>Turn Undead &mdash; Level {c.level}</h4>
-          <Caption>Roll needed vs. Hit Dice of Monster Type. T = auto-turn, D = auto-destroy, &mdash; = no effect.</Caption>
+          <Caption>Click the HD of the undead you're facing. T = auto-turn, D = auto-destroy, &mdash; = cannot be turned.</Caption>
           <div className="compact-row">
             {TURN_UNDEAD_COLUMNS.map((col, i) => (
               <div className="compact-cell" key={col}>
-                <div className="compact-chip">{col}</div>
+                <button className="compact-chip rollable" onClick={() => onRollTurnUndead(col, turnValues[i])} title={`Roll vs HD ${col}`}>{col}</button>
                 <div className="compact-val">{turnValues[i]}</div>
               </div>
             ))}
           </div>
-          <button className="table-toggle roll-trigger" onClick={onRollTurnUndead} title="Roll 2d6 + modifier">
-            &#127922; Roll Turn Undead
-          </button>
           <button className="table-toggle" onClick={() => setShowTurnTable((s) => !s)}>
             {showTurnTable ? "\u25be Hide" : "\u25b8 Show"} full Turn Undead table
           </button>
@@ -652,7 +662,7 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
         </div>
       )}
 
-      {c.classFeatures.spells && (
+      {showSpells && (
         <div className="feature-block show">
           <h4>Spells</h4>
           <Caption>Type the number of slots for a level; that many check boxes appear. Check one off when it's used.</Caption>
@@ -665,7 +675,7 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
                     <input type="number" min={0} max={8} value={level.slots} disabled={!canEdit}
                       onChange={(e) => updateSpellLevel(i, { slots: Math.max(0, Math.min(8, Number(e.target.value) || 0)) })} />
                   </div>
-                  <div className="box slot-boxes">
+                  <div className="box slot-boxes" style={{ justifyContent: "flex-start" }}>
                     {Array.from({ length: level.slots }).map((_, si) => (
                       <input key={si} type="checkbox" checked={si < level.used} disabled={!canEdit}
                         onChange={(e) => {

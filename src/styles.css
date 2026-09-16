@@ -187,12 +187,19 @@ textarea.locked{ resize:none; }
 .roll-result{ font-family:'Oswald',sans-serif; font-size:12px; color:var(--caption); margin-top:4px; }
 
 .roll-banner{
+  position:fixed; bottom:16px; right:16px; z-index:1000; max-width:280px;
   font-family:'Source Serif 4', serif; font-size:13px; border:1.5px solid var(--ink);
-  padding:8px 10px; margin-bottom:14px; background:#FCFBF8; color:var(--ink);
+  padding:10px 32px 10px 12px; background:#FCFBF8; color:var(--ink);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
 }
 .roll-banner.success{ background:#dcefd8; border-color:#2f7a2f; }
 .roll-banner.fail{ background:#f5dada; border-color:#a11414; }
 .roll-banner.neutral{ background:#FCFBF8; }
+.roll-banner .roll-dismiss{
+  position:absolute; top:6px; right:8px; background:none; border:none; cursor:pointer;
+  font-size:14px; line-height:1; color:var(--ink); opacity:0.6; padding:2px;
+}
+.roll-banner .roll-dismiss:hover{ opacity:1; }
 
 /* Encumbrance table */
 .inventory-wrap{ margin-top:18px; padding-top:14px; border-top:2px solid var(--ink); }

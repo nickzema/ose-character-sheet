@@ -99,9 +99,9 @@ export interface Character {
   coins: Coins;
 
   classFeatures: {
+    cleric: boolean;
+    magicUser: boolean;
     thief: boolean;
-    turnUndead: boolean;
-    spells: boolean;
   };
   spellLevels: SpellLevel[]; // always 6 entries, levels 1-6
 
@@ -165,7 +165,7 @@ export function blankCharacter(id: string, ownerId: string): Character {
     },
     coins: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 },
 
-    classFeatures: { thief: false, turnUndead: false, spells: false },
+    classFeatures: { cleric: false, magicUser: false, thief: false },
     spellLevels: Array.from({ length: 6 }, () => ({ slots: 0, used: 0, known: "" })),
 
     otherNotes: "",

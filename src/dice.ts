@@ -19,12 +19,16 @@ interface RollResult {
 
 let readyCache: boolean | null = null;
 
-/** Check whether Dice+ is installed and responding. Cached for the session. */
+/** Check whether Dice+ is installed and responding. A positive result is
+ *  cached for the session, but a negative one is NOT - Dice+ may simply
+ *  not have finished loading yet when the first roll happens, so every
+ *  roll gets its own chance to detect it rather than being locked out
+ *  permanently by one early miss. */
 export async function isDicePlusReady(): Promise<boolean> {
-  if (readyCache !== null) return readyCache;
+  if (readyCache === true) return true;
   const requestId = crypto.randomUUID();
 
-  readyCache = await new Promise<boolean>((resolve) => {
+  const result = await new Promise<boolean>((resolve) => {
     const unsubscribe = OBR.broadcast.onMessage("dice-plus/isReady", (event) => {
       const data = event.data as { requestId?: string; ready?: boolean };
       if (data.ready && data.requestId === requestId) {
@@ -36,10 +40,11 @@ export async function isDicePlusReady(): Promise<boolean> {
     setTimeout(() => {
       unsubscribe();
       resolve(false);
-    }, 1000);
+    }, 1500);
   });
 
-  return readyCache;
+  if (result) readyCache = true;
+  return result;
 }
 
 /**
