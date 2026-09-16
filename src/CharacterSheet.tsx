@@ -1,7 +1,23 @@
 import { useState } from "react";
 import type { Character, Weapon, SpellLevel } from "./types";
 import { abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS } from "./abilities";
-import { rollWeapon } from "./dice";
+import { rollWeapon, rollNotation } from "./dice";
+
+interface RollState {
+  label: string;
+  detail: string;
+  outcome: "success" | "fail" | "neutral";
+}
+
+function parseXin6(s: string): number {
+  const m = s.match(/^\s*(\d+)/);
+  return m ? parseInt(m[1], 10) : 1;
+}
+
+function parseHearNoiseRange(s: string): number {
+  const nums = s.match(/\d+/g);
+  return nums && nums.length ? parseInt(nums[nums.length - 1], 10) : 1;
+}
 
 interface Props {
   character: Character;
@@ -23,19 +39,32 @@ const SWATCHES: [string, string][] = [
 
 const THIEF_SKILL_KEYS = ["CS", "TR", "HN", "HS", "MS", "OL", "PP"];
 
-function ChipRow({ chip, value, onChange, disabled, narrow, width }: {
+function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollTitle }: {
   chip: string; value: string | number; onChange?: (v: string) => void;
-  disabled?: boolean; narrow?: string; width?: string;
+  disabled?: boolean; narrow?: string; width?: string; onRoll?: () => void; rollTitle?: string;
 }) {
   return (
     <div className="chip-row" style={width ? { flex: `0 0 ${width}` } : undefined}>
-      <div className="chip">{chip}</div>
+      {onRoll ? (
+        <button className="chip rollable" onClick={onRoll} title={rollTitle || "Click to roll"}>{chip}</button>
+      ) : (
+        <div className="chip">{chip}</div>
+      )}
       <div className="box">
         <input value={value} disabled={disabled} onChange={(e) => onChange?.(e.target.value)} />
       </div>
       {narrow !== undefined && (
         <div className="box narrow"><input value={narrow} disabled readOnly /></div>
       )}
+    </div>
+  );
+}
+
+function RollBanner({ roll }: { roll: RollState | null }) {
+  if (!roll) return null;
+  return (
+    <div className={`roll-banner ${roll.outcome}`}>
+      <b>{roll.label}:</b> {roll.detail}
     </div>
   );
 }
@@ -50,7 +79,6 @@ function Caption({ children }: { children: React.ReactNode }) {
 
 export default function CharacterSheet({ character: c, canEdit, onChange, onDelete, onBack }: Props) {
   const [colorOpen, setColorOpen] = useState(false);
-  const [rollResult, setRollResult] = useState<string | null>(null);
   const [portraitUrlDraft, setPortraitUrlDraft] = useState("");
 
   const set = <K extends keyof Character>(key: K, value: Character[K]) => onChange({ ...c, [key]: value });
@@ -58,17 +86,120 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
   const setSave = (k: keyof Character["saves"], v: number) => onChange({ ...c, saves: { ...c.saves, [k]: v } });
 
   const strMod = abilityMod(c.abilities.str);
+  const intMod = abilityMod(c.abilities.int);
   const dexMod = abilityMod(c.abilities.dex);
   const wisMod = abilityMod(c.abilities.wis);
   const conMod = abilityMod(c.abilities.con);
   const chaMod = abilityMod(c.abilities.cha);
 
+  const [roll, setRoll] = useState<RollState | null>(null);
+
+  const rollAndShow = async (
+    label: string,
+    notation: string,
+    interpret: (total: number) => { detail: string; outcome: "success" | "fail" | "neutral" }
+  ) => {
+    setRoll({ label, detail: "Rolling...", outcome: "neutral" });
+    const { total } = await rollNotation(notation, label);
+    setRoll({ label, ...interpret(total) });
+    return total;
+  };
+
+  // STR/INT/WIS/DEX/CON/CHA: 1d20, success on a roll <= the score itself.
+  const rollAbility = (abbr: string, score: number) =>
+    rollAndShow(`${abbr} Check`, "1d20", (total) => ({
+      detail: `Rolled ${total} vs ${score} \u2014 ${total <= score ? "Success" : "Fail"}`,
+      outcome: total <= score ? "success" : "fail",
+    }));
+
+  // Saving throws: 1d20 (+WIS mod if vs. magic), success on a roll >= the save value.
+  // Wands and Spells/Rods/Staves are always magical - no prompt, WIS mod always applies.
+  // Death, Paralysis, and Breath prompt first since those aren't always magical.
+  const rollSave = async (label: string, value: number, alwaysMagic: boolean, askMagic: boolean) => {
+    let vsMagic = alwaysMagic;
+    if (askMagic) {
+      vsMagic = window.confirm(`Is this save vs. Magic? (adds WIS ${fmtMod(wisMod)} if yes)`);
+    }
+    const mod = vsMagic ? wisMod : 0;
+    const notation = mod !== 0 ? `1d20${mod >= 0 ? "+" : ""}${mod}` : "1d20";
+    await rollAndShow(`${label} Save`, notation, (total) => ({
+      detail: `Rolled ${total} vs ${value} \u2014 ${total >= value ? "Success" : "Fail"}`,
+      outcome: total >= value ? "success" : "fail",
+    }));
+  };
+
+  const rollInit = () => rollAndShow("Initiative", `1d6${dexMod >= 0 ? "+" : ""}${dexMod}`, (total) => ({
+    detail: `${total}`,
+    outcome: "neutral",
+  }));
+
+  const rollReaction = (label: string) =>
+    rollAndShow(label, `2d6${chaMod >= 0 ? "+" : ""}${chaMod}`, (total) => ({
+      detail: `${total}`,
+      outcome: "neutral",
+    }));
+
+  // Loyalty: 2d6, success on a roll <= the loyalty value (a morale-style check).
+  const rollLoyalty = () =>
+    rollAndShow("Loyalty", "2d6", (total) => ({
+      detail: `Rolled ${total} vs ${c.retainerLoyalty} \u2014 ${total <= c.retainerLoyalty ? "Success" : "Fail"}`,
+      outcome: total <= c.retainerLoyalty ? "success" : "fail",
+    }));
+
+  // Exploration x-in-6 checks: 1d6, success on a roll <= the threshold.
+  const rollXin6 = (label: string, thresholdText: string) => {
+    const threshold = parseXin6(thresholdText);
+    return rollAndShow(label, "1d6", (total) => ({
+      detail: `Rolled ${total} vs ${threshold}-in-6 \u2014 ${total <= threshold ? "Success" : "Fail"}`,
+      outcome: total <= threshold ? "success" : "fail",
+    }));
+  };
+
+  const rollMelMis = (label: string, mod: number) =>
+    rollAndShow(label, `1d20${c.attackBonus + mod >= 0 ? "+" : ""}${c.attackBonus + mod}`, (total) => ({
+      detail: `${total}`,
+      outcome: "neutral",
+    }));
+
+  // Thief skills: percentage skills are d100 roll-under; Hear Noise is x-in-6.
+  const rollThiefSkill = (key: string, displayValue: string) => {
+    if (key === "HN") return rollXin6("Hear Noise", `${parseHearNoiseRange(displayValue)}-in-6`);
+    const pct = parseInt(displayValue, 10) || 0;
+    return rollAndShow(key, "1d100", (total) => ({
+      detail: `Rolled ${total} vs ${pct}% \u2014 ${total <= pct ? "Success" : "Fail"}`,
+      outcome: total <= pct ? "success" : "fail",
+    }));
+  };
+
+  // Turn Undead: prompt for a situational modifier, roll 2d6+mod, success on a
+  // roll >= the easiest (lowest) numeric target on the current level's row.
+  // On success, roll a second plain 2d6 a moment later to show HD turned.
+  const rollTurnUndead = async () => {
+    const modInput = window.prompt("Any situational modifier to this Turn Undead check?", "0");
+    if (modInput === null) return;
+    const mod = parseInt(modInput, 10) || 0;
+    const row = turnUndeadForLevel(c.level);
+    const numeric = row.filter((v): v is number => typeof v === "number");
+    const target = numeric.length ? Math.min(...numeric) : 7;
+    const notation = mod !== 0 ? `2d6${mod >= 0 ? "+" : ""}${mod}` : "2d6";
+    const total = await rollAndShow("Turn Undead", notation, (t) => ({
+      detail: `Rolled ${t} vs ${target} \u2014 ${t >= target ? "Success" : "Fail"}`,
+      outcome: t >= target ? "success" : "fail",
+    }));
+    if (total >= target) {
+      setTimeout(async () => {
+        const { total: hdTotal } = await rollNotation("2d6", "HD Turned");
+        setRoll({ label: "Turn Undead", detail: `Success \u2014 turns ${hdTotal} HD worth of undead`, outcome: "success" });
+      }, 1000);
+    }
+  };
+
   const doRoll = async (weapon: Weapon) => {
-    setRollResult(`Rolling ${weapon.name || "weapon"}...`);
+    setRoll({ label: weapon.name || "Weapon", detail: "Rolling...", outcome: "neutral" });
     const hitMod = c.attackBonus + (weapon.ranged ? dexMod : strMod);
     const dmgMod = weapon.ranged ? 0 : strMod; // only STR/melee adds to damage - never the attack bonus or DEX
     const { summary } = await rollWeapon(weapon.name, weapon.damage, hitMod, dmgMod);
-    setRollResult(summary);
+    setRoll({ label: weapon.name || "Weapon", detail: summary, outcome: "neutral" });
   };
 
   const updateWeapon = (i: number, patch: Partial<Weapon>) => {
@@ -105,6 +236,8 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
         </div>
       </div>
 
+      <RollBanner roll={roll} />
+
       <div className="sheet-grid">
         <div className="col-left">
 
@@ -133,31 +266,31 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
             <div>
               <h3>Ability Scores</h3>
               <Caption>Roll under or equal on 1d20</Caption>
-              <ChipRow chip="STR" value={c.abilities.str} narrow={fmtMod(strMod)} disabled={!canEdit} onChange={(v) => setAbility("str", Number(v) || 0)} />
+              <ChipRow chip="STR" value={c.abilities.str} narrow={fmtMod(strMod)} disabled={!canEdit} onChange={(v) => setAbility("str", Number(v) || 0)} onRoll={() => rollAbility("STR", c.abilities.str)} rollTitle="Roll STR check (1d20 vs score)" />
               <Caption>Melee, Open doors {strOpenDoors(c.abilities.str)}</Caption>
-              <ChipRow chip="INT" value={c.abilities.int} narrow={fmtMod(abilityMod(c.abilities.int))} disabled={!canEdit} onChange={(v) => setAbility("int", Number(v) || 0)} />
+              <ChipRow chip="INT" value={c.abilities.int} narrow={fmtMod(intMod)} disabled={!canEdit} onChange={(v) => setAbility("int", Number(v) || 0)} onRoll={() => rollAbility("INT", c.abilities.int)} rollTitle="Roll INT check (1d20 vs score)" />
               <Caption>Languages, Literacy</Caption>
-              <ChipRow chip="WIS" value={c.abilities.wis} narrow={fmtMod(wisMod)} disabled={!canEdit} onChange={(v) => setAbility("wis", Number(v) || 0)} />
+              <ChipRow chip="WIS" value={c.abilities.wis} narrow={fmtMod(wisMod)} disabled={!canEdit} onChange={(v) => setAbility("wis", Number(v) || 0)} onRoll={() => rollAbility("WIS", c.abilities.wis)} rollTitle="Roll WIS check (1d20 vs score)" />
               <Caption>Saves vs magic</Caption>
-              <ChipRow chip="DEX" value={c.abilities.dex} narrow={fmtMod(dexMod)} disabled={!canEdit} onChange={(v) => setAbility("dex", Number(v) || 0)} />
+              <ChipRow chip="DEX" value={c.abilities.dex} narrow={fmtMod(dexMod)} disabled={!canEdit} onChange={(v) => setAbility("dex", Number(v) || 0)} onRoll={() => rollAbility("DEX", c.abilities.dex)} rollTitle="Roll DEX check (1d20 vs score)" />
               <Caption>Missile, AC, Init</Caption>
-              <ChipRow chip="CON" value={c.abilities.con} narrow={fmtMod(conMod)} disabled={!canEdit} onChange={(v) => setAbility("con", Number(v) || 0)} />
+              <ChipRow chip="CON" value={c.abilities.con} narrow={fmtMod(conMod)} disabled={!canEdit} onChange={(v) => setAbility("con", Number(v) || 0)} onRoll={() => rollAbility("CON", c.abilities.con)} rollTitle="Roll CON check (1d20 vs score)" />
               <Caption>Hit points</Caption>
-              <ChipRow chip="CHA" value={c.abilities.cha} narrow={fmtMod(chaMod)} disabled={!canEdit} onChange={(v) => setAbility("cha", Number(v) || 0)} />
+              <ChipRow chip="CHA" value={c.abilities.cha} narrow={fmtMod(chaMod)} disabled={!canEdit} onChange={(v) => setAbility("cha", Number(v) || 0)} onRoll={() => rollAbility("CHA", c.abilities.cha)} rollTitle="Roll CHA check (1d20 vs score)" />
               <Caption>Reactions, Retainers, Loyalty</Caption>
             </div>
             <div>
               <h3>Saving Throws</h3>
               <Caption>Roll over or equal on 1d20</Caption>
-              <ChipRow chip="D" value={c.saves.death} disabled={!canEdit} onChange={(v) => setSave("death", Number(v) || 0)} />
+              <ChipRow chip="D" value={c.saves.death} disabled={!canEdit} onChange={(v) => setSave("death", Number(v) || 0)} onRoll={() => rollSave("Death", c.saves.death, false, true)} rollTitle="Roll Death save" />
               <Caption>Death, poison</Caption>
-              <ChipRow chip="W" value={c.saves.wands} disabled={!canEdit} onChange={(v) => setSave("wands", Number(v) || 0)} />
+              <ChipRow chip="W" value={c.saves.wands} disabled={!canEdit} onChange={(v) => setSave("wands", Number(v) || 0)} onRoll={() => rollSave("Wands", c.saves.wands, true, false)} rollTitle="Roll Wands save (always vs. magic)" />
               <Caption>Magic wands</Caption>
-              <ChipRow chip="P" value={c.saves.paralysis} disabled={!canEdit} onChange={(v) => setSave("paralysis", Number(v) || 0)} />
+              <ChipRow chip="P" value={c.saves.paralysis} disabled={!canEdit} onChange={(v) => setSave("paralysis", Number(v) || 0)} onRoll={() => rollSave("Paralysis", c.saves.paralysis, false, true)} rollTitle="Roll Paralysis save" />
               <Caption>Paralysis, petrification</Caption>
-              <ChipRow chip="B" value={c.saves.breath} disabled={!canEdit} onChange={(v) => setSave("breath", Number(v) || 0)} />
+              <ChipRow chip="B" value={c.saves.breath} disabled={!canEdit} onChange={(v) => setSave("breath", Number(v) || 0)} onRoll={() => rollSave("Breath", c.saves.breath, false, true)} rollTitle="Roll Breath save" />
               <Caption>Breath attacks</Caption>
-              <ChipRow chip="S" value={c.saves.spells} disabled={!canEdit} onChange={(v) => setSave("spells", Number(v) || 0)} />
+              <ChipRow chip="S" value={c.saves.spells} disabled={!canEdit} onChange={(v) => setSave("spells", Number(v) || 0)} onRoll={() => rollSave("Spells", c.saves.spells, true, false)} rollTitle="Roll Spells save (always vs. magic)" />
               <Caption>Spells, rods, staves</Caption>
               <ChipRow chip="&plusmn;" value={fmtMod(wisMod)} disabled />
               <Caption>WIS modifier to saves vs magic</Caption>
@@ -179,8 +312,8 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
               <Caption>Attack Bonus</Caption>
             </Row2>
             <Row2>
-              <ChipRow chip="Mel" value={fmtMod(strMod)} disabled />
-              <ChipRow chip="Mis" value={fmtMod(dexMod)} disabled />
+              <ChipRow chip="Mel" value={fmtMod(strMod)} disabled onRoll={() => rollMelMis("Melee Attack", strMod)} rollTitle="Roll d20 + Att + STR" />
+              <ChipRow chip="Mis" value={fmtMod(dexMod)} disabled onRoll={() => rollMelMis("Missile Attack", dexMod)} rollTitle="Roll d20 + Att + DEX" />
             </Row2>
             <Row2>
               <Caption>STR mod. to melee att./damage</Caption>
@@ -210,7 +343,6 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
               </div>
             ))}
             {canEdit && <button className="btn text" onClick={addWeaponRow}>+ Weapon</button>}
-            {rollResult && <p className="roll-result">{rollResult}</p>}
           </div>
 
         </div>
@@ -249,13 +381,13 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
           <div>
             <h3>Encounters</h3>
             <Row2>
-              <ChipRow chip="Init" value={fmtMod(c.init)} disabled={!canEdit} onChange={(v) => set("init", Number(v.replace("+", "")) || 0)} />
-              <ChipRow chip="&plusmn;" value={fmtMod(c.reaction)} disabled={!canEdit} onChange={(v) => set("reaction", Number(v.replace("+", "")) || 0)} />
+              <ChipRow chip="Init" value={fmtMod(dexMod)} disabled onRoll={rollInit} rollTitle="Roll 1d6 + DEX" />
+              <ChipRow chip="&plusmn;" value={fmtMod(chaMod)} disabled onRoll={() => rollReaction("Reaction")} rollTitle="Roll 2d6 + CHA" />
             </Row2>
             <Row2><Caption>Initiative</Caption><Caption>Reaction</Caption></Row2>
             <Row2>
-              <ChipRow chip="Ret" value={c.maxRetainers} disabled={!canEdit} onChange={(v) => set("maxRetainers", Number(v) || 0)} />
-              <ChipRow chip="Loy" value={c.retainerLoyalty} disabled={!canEdit} onChange={(v) => set("retainerLoyalty", Number(v) || 0)} />
+              <ChipRow chip="Ret" value={c.maxRetainers} disabled={!canEdit} onChange={(v) => set("maxRetainers", Number(v) || 0)} onRoll={() => rollReaction("Retainer Reaction")} rollTitle="Roll 2d6 + CHA" />
+              <ChipRow chip="Loy" value={c.retainerLoyalty} disabled={!canEdit} onChange={(v) => set("retainerLoyalty", Number(v) || 0)} onRoll={rollLoyalty} rollTitle="Roll 2d6 vs Loyalty" />
             </Row2>
             <Row2><Caption>Max Retainers</Caption><Caption>Retainer Loyalty</Caption></Row2>
           </div>
@@ -264,13 +396,13 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
             <h3>Exploration</h3>
             <Caption>(x-in-6)</Caption>
             <Row2>
-              <ChipRow chip="LD" value={c.listenDoor} disabled={!canEdit} onChange={(v) => set("listenDoor", v)} />
-              <ChipRow chip="OD" value={c.openDoor || strOpenDoors(c.abilities.str)} disabled={!canEdit} onChange={(v) => set("openDoor", v)} />
+              <ChipRow chip="LD" value={c.listenDoor} disabled={!canEdit} onChange={(v) => set("listenDoor", v)} onRoll={() => rollXin6("Listen Door", c.listenDoor)} rollTitle="Roll 1d6 vs threshold" />
+              <ChipRow chip="OD" value={c.openDoor || strOpenDoors(c.abilities.str)} disabled={!canEdit} onChange={(v) => set("openDoor", v)} onRoll={() => rollXin6("Open Door", c.openDoor || strOpenDoors(c.abilities.str))} rollTitle="Roll 1d6 vs threshold" />
             </Row2>
             <Row2><Caption>Listen door</Caption><Caption>Open door</Caption></Row2>
             <Row2>
-              <ChipRow chip="SD" value={c.secretDoor} disabled={!canEdit} onChange={(v) => set("secretDoor", v)} />
-              <ChipRow chip="FT" value={c.findTrap} disabled={!canEdit} onChange={(v) => set("findTrap", v)} />
+              <ChipRow chip="SD" value={c.secretDoor} disabled={!canEdit} onChange={(v) => set("secretDoor", v)} onRoll={() => rollXin6("Secret Door", c.secretDoor)} rollTitle="Roll 1d6 vs threshold" />
+              <ChipRow chip="FT" value={c.findTrap} disabled={!canEdit} onChange={(v) => set("findTrap", v)} onRoll={() => rollXin6("Find Trap", c.findTrap)} rollTitle="Roll 1d6 vs threshold" />
             </Row2>
             <Row2><Caption>Secret doors</Caption><Caption>Find traps</Caption></Row2>
           </div>
@@ -298,7 +430,8 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
 
       <InventorySection character={c} canEdit={canEdit} onChange={onChange} strTags={strTags} />
 
-      <ClassFeaturesSection character={c} canEdit={canEdit} onChange={onChange} updateSpellLevel={updateSpellLevel} />
+      <ClassFeaturesSection character={c} canEdit={canEdit} onChange={onChange} updateSpellLevel={updateSpellLevel}
+        onRollThiefSkill={rollThiefSkill} onRollTurnUndead={rollTurnUndead} />
 
       <div className="notes-coins-grid">
         <div className="enc-col" style={{ flex: 2 }}>
@@ -448,9 +581,11 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
   );
 }
 
-function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLevel }: {
+function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLevel, onRollThiefSkill, onRollTurnUndead }: {
   character: Character; canEdit: boolean; onChange: (c: Character) => void;
   updateSpellLevel: (i: number, patch: Partial<SpellLevel>) => void;
+  onRollThiefSkill: (key: string, displayValue: string) => void;
+  onRollTurnUndead: () => void;
 }) {
   const [showThiefTable, setShowThiefTable] = useState(false);
   const [showTurnTable, setShowTurnTable] = useState(false);
@@ -483,7 +618,7 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
           <div className="compact-row">
             {THIEF_SKILL_KEYS.map((k) => (
               <div className="compact-cell" key={k}>
-                <div className="compact-chip">{k}</div>
+                <button className="compact-chip rollable" onClick={() => onRollThiefSkill(k, thiefValues[k])} title="Click to roll">{k}</button>
                 <div className="compact-val">{thiefValues[k]}</div>
               </div>
             ))}
@@ -507,6 +642,9 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
               </div>
             ))}
           </div>
+          <button className="table-toggle roll-trigger" onClick={onRollTurnUndead} title="Roll 2d6 + modifier">
+            &#127922; Roll Turn Undead
+          </button>
           <button className="table-toggle" onClick={() => setShowTurnTable((s) => !s)}>
             {showTurnTable ? "\u25be Hide" : "\u25b8 Show"} full Turn Undead table
           </button>
