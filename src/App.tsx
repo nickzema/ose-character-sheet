@@ -47,6 +47,7 @@ export default function App() {
   }
 
   const canEdit = (c: Character) => player.role === "GM" || c.ownerId === player.id;
+  const isGM = player.role === "GM";
 
   const addCharacter = async () => {
     const c = blankCharacter(crypto.randomUUID(), player.id);
@@ -65,7 +66,15 @@ export default function App() {
     setSelectedId(null);
   };
 
-  const selected = selectedId ? roster.find((c) => c.id === selectedId) ?? null : null;
+  const toggleHidden = (id: string) => {
+    saveRoster(roster.map((c) => (c.id === id ? { ...c, hidden: !c.hidden } : c)));
+  };
+
+  // Players never see hidden characters, anywhere in this list - not just
+  // dimmed or locked, absent entirely. The GM still sees them (dimmed).
+  const visibleRoster = isGM ? roster : roster.filter((c) => !c.hidden);
+
+  const selected = selectedId ? visibleRoster.find((c) => c.id === selectedId) ?? null : null;
 
   return (
     <div className="app">
@@ -74,12 +83,20 @@ export default function App() {
         <CharacterSheet
           character={selected}
           canEdit={canEdit(selected)}
+          isGM={isGM}
           onChange={updateCharacter}
           onDelete={() => deleteCharacter(selected.id)}
           onBack={() => setSelectedId(null)}
         />
       ) : (
-        <CharacterList characters={roster} onSelect={setSelectedId} onAdd={addCharacter} onDelete={deleteCharacter} />
+        <CharacterList
+          characters={visibleRoster}
+          isGM={isGM}
+          onSelect={setSelectedId}
+          onAdd={addCharacter}
+          onDelete={deleteCharacter}
+          onToggleHidden={toggleHidden}
+        />
       )}
     </div>
   );

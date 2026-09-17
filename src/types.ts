@@ -21,10 +21,10 @@ export interface Weapon {
   ranged: boolean; // false = melee (uses STR/Mel), true = missile (uses DEX/Mis)
 }
 
-export interface SpellLevel {
-  slots: number;
-  used: number; // count of slots checked off as spent
-  known: string;
+export interface MemorizedSpell {
+  name: string;
+  level: number; // 1-6
+  used: boolean; // cast/expended today
 }
 
 export type ArmourType = "unarmoured" | "light" | "heavy";
@@ -70,6 +70,7 @@ export interface Character {
   id: string;
   ownerId: string; // OBR player id who created this character
   type: "PC" | "NPC";
+  hidden: boolean; // GM-only: excluded from the roster players see
   color: string; // sheet paper color, hex
   portrait: string | null; // data URL or token image URL
   linkedTokenId: string | null; // OBR scene item id, if assigned from a token
@@ -120,7 +121,15 @@ export interface Character {
     magicUser: boolean;
     thief: boolean;
   };
-  spellLevels: SpellLevel[]; // always 6 entries, levels 1-6
+  // Memorized Spells - shared by Cleric and Magic-User, a growable list
+  // (like Detailed Inventory) rather than a fixed slot count. Memorize the
+  // same spell twice to cast it twice.
+  memorizedSpells: MemorizedSpell[];
+  // Magic-User only: the spellbook, chaptered by level (index 0 = Lv1 ...
+  // index 5 = Lv6). Spells here are what CAN be memorized - not what's
+  // currently memorized.
+  spellbook: string[][];
+  spellbookUnlockedLevels: number; // 1-6, how many chapters are revealed
 
   otherNotes: string;
 
@@ -134,6 +143,7 @@ export function blankCharacter(id: string, ownerId: string): Character {
     id,
     ownerId,
     type: "PC",
+    hidden: false,
     color: "#FCFBF8",
     portrait: null,
     linkedTokenId: null,
@@ -189,7 +199,9 @@ export function blankCharacter(id: string, ownerId: string): Character {
     coins: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 },
 
     classFeatures: { cleric: false, magicUser: false, thief: false },
-    spellLevels: Array.from({ length: 6 }, () => ({ slots: 0, used: 0, known: "" })),
+    memorizedSpells: [],
+    spellbook: Array.from({ length: 6 }, () => []),
+    spellbookUnlockedLevels: 1,
 
     otherNotes: "",
 
@@ -211,6 +223,32 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
   // Old saved data used inventoryMode "standard" before Basic/Detailed were split out - treat it as Basic.
   const inventoryMode: InventoryMode = (raw.inventoryMode as string) === "standard" ? "basic" : (raw.inventoryMode ?? blank.inventoryMode);
   const oldStandard = (raw as unknown as { standardInventory?: Partial<BasicInventory> }).standardInventory;
+
+  // Migrate the old fixed-slot "spellLevels" schema (checkboxes + one
+  // freeform "known" text field per level) into the new growable
+  // memorized-spells list + per-level spellbook chapters. Best-effort:
+  // splits each level's old text on commas/semicolons/newlines into
+  // separate spell entries at that level, since that's the only level
+  // information the old data carried.
+  const oldSpellLevels = (raw as unknown as { spellLevels?: { known?: string }[] }).spellLevels;
+  let memorizedSpells = raw.memorizedSpells;
+  let spellbook = raw.spellbook;
+  let spellbookUnlockedLevels = raw.spellbookUnlockedLevels;
+  if (!memorizedSpells && oldSpellLevels?.length) {
+    memorizedSpells = [];
+    oldSpellLevels.forEach((lvl, i) => {
+      (lvl.known || "").split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean).forEach((name) => {
+        memorizedSpells!.push({ name, level: i + 1, used: false });
+      });
+    });
+  }
+  if (!spellbook && oldSpellLevels?.length) {
+    spellbook = Array.from({ length: 6 }, (_, i) =>
+      (oldSpellLevels[i]?.known || "").split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean)
+    );
+    spellbookUnlockedLevels = spellbook.reduce((max, lvl, i) => (lvl.length ? i + 1 : max), 1);
+  }
+
   return {
     ...blank,
     ...raw,
@@ -231,7 +269,9 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
     },
     coins: { ...blank.coins, ...raw.coins },
     classFeatures: { ...blank.classFeatures, ...raw.classFeatures },
-    spellLevels: raw.spellLevels?.length === 6 ? raw.spellLevels : blank.spellLevels,
+    memorizedSpells: memorizedSpells ?? blank.memorizedSpells,
+    spellbook: spellbook?.length === 6 ? spellbook : blank.spellbook,
+    spellbookUnlockedLevels: spellbookUnlockedLevels ?? blank.spellbookUnlockedLevels,
     weapons: raw.weapons?.length ? raw.weapons : blank.weapons,
   };
 }

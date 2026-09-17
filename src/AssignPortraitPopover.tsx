@@ -12,14 +12,20 @@ interface Props {
 
 export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName }: Props) {
   const [roster, setRoster] = useState<Character[] | null>(null);
+  const [isGM, setIsGM] = useState(false);
   const [done, setDone] = useState(false);
 
   useEffect(() => {
     OBR.onReady(async () => {
-      const metadata = await OBR.room.getMetadata();
+      const [metadata, role] = await Promise.all([OBR.room.getMetadata(), OBR.player.getRole()]);
       setRoster((metadata[METADATA_KEY] as Character[]) ?? []);
+      setIsGM(role === "GM");
     });
   }, []);
+
+  // Players shouldn't be able to spot a hidden NPC's existence via this
+  // popover either - it's excluded here exactly like the main party list.
+  const visibleRoster = roster && !isGM ? roster.filter((c) => !c.hidden) : roster;
 
   const assign = async (id: string) => {
     if (!roster) return;
@@ -46,8 +52,8 @@ export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName }: 
         <span>Assign "{tokenName}" to:</span>
       </div>
       <div className="assign-list">
-        {roster.length === 0 && <p className="assign-empty">No characters yet. Add one from the sheet panel first.</p>}
-        {roster.map((c) => (
+        {visibleRoster!.length === 0 && <p className="assign-empty">No characters yet. Add one from the sheet panel first.</p>}
+        {visibleRoster!.map((c) => (
           <button key={c.id} className="assign-row" onClick={() => assign(c.id)}>
             <span className="assign-chip" style={{ background: c.color }}>{c.type}</span>
             <span>{c.name || "Unnamed"}</span>

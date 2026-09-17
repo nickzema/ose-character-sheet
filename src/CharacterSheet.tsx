@@ -1,10 +1,12 @@
 import { useState } from "react";
-import type { Character, Weapon, SpellLevel, BasicInventory, DetailedInventory, WeightedItem, ArmourType } from "./types";
+import type { Character, Weapon, MemorizedSpell, BasicInventory, DetailedInventory, WeightedItem, ArmourType } from "./types";
 import {
   abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS,
   movementTriple, BASIC_MOVEMENT, detailedSpeedForWeight,
 } from "./abilities";
 import { rollWeapon, rollNotation, termString } from "./dice";
+import { CLERIC_SPELLS, MAGIC_USER_SPELLS } from "./spells";
+import HelpButton from "./HelpButton";
 
 interface RollState {
   label: string;
@@ -18,7 +20,8 @@ interface RollState {
 
 type ModalState =
   | { type: "confirm"; message: string; yesLabel?: string; noLabel?: string; resolve: (v: boolean) => void }
-  | { type: "prompt"; message: string; defaultValue: string; resolve: (v: number | null) => void };
+  | { type: "prompt"; message: string; defaultValue: string; resolve: (v: number | null) => void }
+  | { type: "choice"; message: string; options: string[]; resolve: (v: string | null) => void };
 
 function parseXin6(s: string): number {
   const m = s.match(/^\s*(\d+)/);
@@ -33,10 +36,20 @@ function parseHearNoiseRange(s: string): number {
 interface Props {
   character: Character;
   canEdit: boolean;
+  isGM: boolean;
   onChange: (c: Character) => void;
   onDelete: () => void;
   onBack: () => void;
 }
+
+const SHEET_HELP = [
+  "Any bold chip with a shadow on hover \u2014 STR/INT/etc., saves, Mel/Mis, Thief Skills, Turn Undead, HP/Max \u2014 rolls dice when clicked.",
+  "HP rolls one Hit Die + CON. Max HP rolls one per level (capped at 9, +2/level after that) + CON. Neither roll changes the HP/Max box for you \u2014 type the result in yourself.",
+  "The die icon next to a weapon rolls its attack and damage together.",
+  "Click PC / NPC at the top left to switch which one this sheet is.",
+  "Click the color swatch to repaint the sheet.",
+  "GM only: the eye icon hides this character so players can't see them at all.",
+];
 
 const SWATCHES: [string, string][] = [
   ["#FCFBF8", "White"],
@@ -57,7 +70,7 @@ function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollT
   return (
     <div className="chip-row" style={width ? { flex: `0 0 ${width}` } : undefined}>
       {onRoll ? (
-        <button className="chip rollable" onClick={onRoll} title={rollTitle || "Click to roll"}>{chip}</button>
+        <button className="chip rollable" onClick={onRoll} data-tip={rollTitle || "Click to roll"}>{chip}</button>
       ) : (
         <div className="chip">{chip}</div>
       )}
@@ -77,7 +90,7 @@ function RollBanner({ roll, onDismiss }: { roll: RollState | null; onDismiss: ()
   const showOutcome = roll.rolled !== undefined && roll.outcome !== "neutral";
   return (
     <div className={`roll-banner ${roll.outcome}`}>
-      <button className="roll-dismiss" onClick={onDismiss} title="Dismiss">&times;</button>
+      <button className="roll-dismiss" onClick={onDismiss} data-tip="Dismiss">&times;</button>
       <div className="roll-label">{roll.label}</div>
       {roll.parts ? (
         <div className="roll-parts">
@@ -111,7 +124,7 @@ function AppModal({ state }: { state: ModalState }) {
   const [inputVal, setInputVal] = useState(state.type === "prompt" ? state.defaultValue : "");
 
   return (
-    <div className="modal-backdrop" onClick={() => state.type === "confirm" ? state.resolve(false) : state.resolve(null)}>
+    <div className="modal-backdrop" onClick={() => state.type === "confirm" ? state.resolve(false) : state.type === "prompt" ? state.resolve(null) : state.resolve(null)}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <p className="modal-message">{state.message}</p>
         {state.type === "prompt" && (
@@ -130,9 +143,16 @@ function AppModal({ state }: { state: ModalState }) {
               <button className="btn modal-btn" onClick={() => state.resolve(true)}>{state.yesLabel || "Yes"}</button>
               <button className="btn text modal-btn" onClick={() => state.resolve(false)}>{state.noLabel || "No"}</button>
             </>
-          ) : (
+          ) : state.type === "prompt" ? (
             <>
               <button className="btn modal-btn" onClick={() => state.resolve(parseInt(inputVal, 10) || 0)}>Roll</button>
+              <button className="btn text modal-btn" onClick={() => state.resolve(null)}>Cancel</button>
+            </>
+          ) : (
+            <>
+              {state.options.map((opt) => (
+                <button key={opt} className="btn modal-btn" onClick={() => state.resolve(opt)}>{opt}</button>
+              ))}
               <button className="btn text modal-btn" onClick={() => state.resolve(null)}>Cancel</button>
             </>
           )}
@@ -150,7 +170,7 @@ function Caption({ children }: { children: React.ReactNode }) {
   return <p className="caption">{children}</p>;
 }
 
-export default function CharacterSheet({ character: c, canEdit, onChange, onDelete, onBack }: Props) {
+export default function CharacterSheet({ character: c, canEdit, isGM, onChange, onDelete, onBack }: Props) {
   const [colorOpen, setColorOpen] = useState(false);
   const [portraitUrlDraft, setPortraitUrlDraft] = useState("");
 
@@ -176,6 +196,11 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
   const askNumber = (message: string, defaultValue = "0") =>
     new Promise<number | null>((resolve) => {
       setModal({ type: "prompt", message, defaultValue, resolve: (v) => { setModal(null); resolve(v); } });
+    });
+
+  const askHitDie = () =>
+    new Promise<string | null>((resolve) => {
+      setModal({ type: "choice", message: "Hit Die?", options: ["d4", "d6", "d8"], resolve: (v) => { setModal(null); resolve(v); } });
     });
 
   const fallbackNoteFor = (reason?: "not-detected" | "timeout") => {
@@ -245,6 +270,32 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
       rolled: total, outcome: "neutral",
     }));
 
+  // HP roll: one Hit Die + CON mod. Never writes into hpCurrent - shown in
+  // the banner only, so a player can't accidentally wipe out a value they
+  // meant to keep by clicking the wrong thing.
+  const rollHP = async () => {
+    const hd = await askHitDie();
+    if (!hd) return;
+    await rollAndShow("HP Roll", `1${hd}${termString([conMod])}`, (total) => ({
+      rolled: total, outcome: "neutral",
+    }));
+  };
+
+  // Max HP roll: one Hit Die + CON mod per level, up to level 9. Past 9th
+  // level, OSE characters stop rolling extra Hit Dice - each level beyond
+  // 9 just adds a flat +2 HP, no CON bonus. Also never writes into hpMax.
+  const rollMaxHP = async () => {
+    const hd = await askHitDie();
+    if (!hd) return;
+    const rolledLevels = Math.min(c.level, 9);
+    const flatLevels = Math.max(c.level - 9, 0);
+    const flatBonus = flatLevels * 2;
+    const notation = `${rolledLevels}${hd}${termString([conMod * rolledLevels, flatBonus])}`;
+    await rollAndShow(`Max HP Roll (Lv${c.level})`, notation, (total) => ({
+      rolled: total, outcome: "neutral",
+    }));
+  };
+
   // Thief skills: percentage skills are d100 roll-under; Hear Noise is x-in-6.
   const rollThiefSkill = (key: string, displayValue: string) => {
     if (key === "HN") return rollXin6("Hear Noise", `${parseHearNoiseRange(displayValue)}-in-6`);
@@ -302,18 +353,25 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
   };
   const addWeaponRow = () => set("weapons", [...c.weapons, { name: "", damage: "", ranged: false }]);
 
-  const updateSpellLevel = (i: number, patch: Partial<SpellLevel>) => {
-    const levels = c.spellLevels.map((l, idx) => (idx === i ? { ...l, ...patch } : l));
-    set("spellLevels", levels);
-  };
-
   const strTags = ["STR 18+", "STR 16+", "STR 13+", "STR 9+", "STR 6+", "STR 4+"];
 
   return (
     <div className="sheet-view" style={{ background: c.color }}>
       <div className="sheet-topbar">
         <button className="btn text" onClick={onBack}>&larr; All characters</button>
-        {canEdit && <button className="btn text danger" onClick={onDelete}>Delete</button>}
+        <div className="sheet-topbar-right">
+          <HelpButton title="How this sheet works" lines={SHEET_HELP} />
+          {isGM && (
+            <button
+              className={`btn text ${c.hidden ? "hidden-active" : ""}`}
+              data-tip={c.hidden ? "Visible only to you \u2014 click to reveal to players" : "Hide from players"}
+              onClick={() => set("hidden", !c.hidden)}
+            >
+              {c.hidden ? "\u{1F441}\uFE0F\u200D\u{1F5E8}\uFE0F Hidden" : "\u{1F441}\uFE0F Hide"}
+            </button>
+          )}
+          {canEdit && <button className="btn text danger" onClick={onDelete}>Delete</button>}
+        </div>
       </div>
 
       <div className="color-picker">
@@ -323,7 +381,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
         )}
         <div className={`color-options ${colorOpen ? "open" : ""}`}>
           {SWATCHES.map(([hex, name]) => (
-            <button key={hex} className="swatch" style={{ background: hex }} title={name}
+            <button key={hex} className="swatch" style={{ background: hex }} data-tip={name}
               onMouseEnter={() => onChange({ ...c, color: hex })}
               onClick={() => setColorOpen(false)} />
           ))}
@@ -339,6 +397,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
           <div className="name-row">
             <div className="chip-row">
               <button className="chip chip-toggle" disabled={!canEdit}
+                data-tip="Click to toggle PC / NPC"
                 onClick={() => set("type", c.type === "PC" ? "NPC" : "PC")}>{c.type}</button>
               <div className="box"><input value={c.name} disabled={!canEdit} placeholder="Character name" onChange={(e) => set("name", e.target.value)} /></div>
               <div className="box player-box">
@@ -395,8 +454,8 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
           <div>
             <h3>Combat</h3>
             <Row2>
-              <ChipRow chip="HP" value={c.hpCurrent} disabled={!canEdit} onChange={(v) => set("hpCurrent", Number(v) || 0)} />
-              <ChipRow chip="Max" value={c.hpMax} disabled={!canEdit} onChange={(v) => set("hpMax", Number(v) || 0)} />
+              <ChipRow chip="HP" value={c.hpCurrent} disabled={!canEdit} onChange={(v) => set("hpCurrent", Number(v) || 0)} onRoll={rollHP} rollTitle="Roll 1 Hit Die + CON (doesn't change this box)" />
+              <ChipRow chip="Max" value={c.hpMax} disabled={!canEdit} onChange={(v) => set("hpMax", Number(v) || 0)} onRoll={rollMaxHP} rollTitle="Roll all Hit Dice for your level + CON (doesn't change this box)" />
             </Row2>
             <Row2>
               <ChipRow chip="AC" value={c.ac} disabled={!canEdit} onChange={(v) => set("ac", Number(v) || 0)} />
@@ -431,10 +490,10 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
                 <input className="wdmg" value={w.damage} disabled={!canEdit}
                   onChange={(e) => updateWeapon(i, { damage: e.target.value })} />
                 <button className={`weapon-type-btn ${w.ranged ? "ranged" : ""}`} disabled={!canEdit}
-                  title="Toggle melee/missile" onClick={() => updateWeapon(i, { ranged: !w.ranged })}>
+                  data-tip="Toggle melee/missile" onClick={() => updateWeapon(i, { ranged: !w.ranged })}>
                   {w.ranged ? "MIS" : "MEL"}
                 </button>
-                <button className="roll-btn" title="Roll attack + damage" onClick={() => doRoll(w)}>&#127922;</button>
+                <button className="roll-btn" data-tip="Roll attack + damage" onClick={() => doRoll(w)}>&#127922;</button>
               </div>
             ))}
             {canEdit && <button className="btn text" onClick={addWeaponRow}>+ Weapon</button>}
@@ -525,7 +584,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
 
       <InventorySection character={c} canEdit={canEdit} onChange={onChange} strTags={strTags} />
 
-      <ClassFeaturesSection character={c} canEdit={canEdit} onChange={onChange} updateSpellLevel={updateSpellLevel}
+      <ClassFeaturesSection character={c} canEdit={canEdit} onChange={onChange}
         onRollThiefSkill={rollThiefSkill} onRollTurnUndead={rollTurnUndead} />
 
       <div className="notes-coins-grid">
@@ -785,9 +844,8 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
   );
 }
 
-function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLevel, onRollThiefSkill, onRollTurnUndead }: {
+function ClassFeaturesSection({ character: c, canEdit, onChange, onRollThiefSkill, onRollTurnUndead }: {
   character: Character; canEdit: boolean; onChange: (c: Character) => void;
-  updateSpellLevel: (i: number, patch: Partial<SpellLevel>) => void;
   onRollThiefSkill: (key: string, displayValue: string) => void;
   onRollTurnUndead: (col: string, value: string | number) => void;
 }) {
@@ -826,7 +884,7 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
           <div className="compact-row">
             {THIEF_SKILL_KEYS.map((k) => (
               <div className="compact-cell" key={k}>
-                <button className="compact-chip rollable" onClick={() => onRollThiefSkill(k, thiefValues[k])} title="Click to roll">{k}</button>
+                <button className="compact-chip rollable" onClick={() => onRollThiefSkill(k, thiefValues[k])} data-tip="Click to roll">{k}</button>
                 <div className="compact-val">{thiefValues[k]}</div>
               </div>
             ))}
@@ -845,7 +903,7 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
           <div className="compact-row">
             {TURN_UNDEAD_COLUMNS.map((col, i) => (
               <div className="compact-cell" key={col}>
-                <button className="compact-chip rollable" onClick={() => onRollTurnUndead(col, turnValues[i])} title={`Roll vs HD ${col}`}>{col}</button>
+                <button className="compact-chip rollable" onClick={() => onRollTurnUndead(col, turnValues[i])} data-tip={`Roll vs HD ${col}`}>{col}</button>
                 <div className="compact-val">{turnValues[i]}</div>
               </div>
             ))}
@@ -857,36 +915,112 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, updateSpellLeve
         </div>
       )}
 
-      {showSpells && (
-        <div className="feature-block show">
-          <h4>Spells</h4>
-          <Caption>Type the number of slots for a level; that many check boxes appear. Check one off when it's used.</Caption>
-          <div className="spell-grid">
-            {c.spellLevels.map((level, i) => (
-              <div className="spell-level" key={i}>
-                <div className="chip-row">
-                  <div className="chip">Lv{i + 1}</div>
-                  <div className="box narrow">
-                    <input type="number" min={0} max={8} value={level.slots} disabled={!canEdit}
-                      onChange={(e) => updateSpellLevel(i, { slots: Math.max(0, Math.min(8, Number(e.target.value) || 0)) })} />
-                  </div>
-                  <div className="box slot-boxes" style={{ justifyContent: "flex-start" }}>
-                    {Array.from({ length: level.slots }).map((_, si) => (
-                      <input key={si} type="checkbox" checked={si < level.used} disabled={!canEdit}
-                        onChange={(e) => {
-                          const used = e.target.checked ? Math.max(level.used, si + 1) : Math.min(level.used, si);
-                          updateSpellLevel(i, { used });
-                        }} />
-                    ))}
-                  </div>
-                </div>
-                <textarea rows={1} placeholder="Spells known / memorized at this level" value={level.known} disabled={!canEdit}
-                  onChange={(e) => updateSpellLevel(i, { known: e.target.value })} />
-              </div>
-            ))}
+      {showSpells && <SpellsSection character={c} canEdit={canEdit} onChange={onChange} />}
+    </div>
+  );
+}
+
+function SpellsSection({ character: c, canEdit, onChange }: {
+  character: Character; canEdit: boolean; onChange: (c: Character) => void;
+}) {
+  const [showReference, setShowReference] = useState(false);
+  const isMU = c.classFeatures.magicUser;
+  const className = isMU ? "Magic-User" : "Cleric";
+  const referenceList = isMU ? MAGIC_USER_SPELLS : CLERIC_SPELLS;
+
+  const addMemorized = () => onChange({ ...c, memorizedSpells: [...c.memorizedSpells, { name: "", level: 1, used: false }] });
+  const updateMemorized = (i: number, patch: Partial<MemorizedSpell>) =>
+    onChange({ ...c, memorizedSpells: c.memorizedSpells.map((s, idx) => (idx === i ? { ...s, ...patch } : s)) });
+  const removeMemorized = (i: number) =>
+    onChange({ ...c, memorizedSpells: c.memorizedSpells.filter((_, idx) => idx !== i) });
+
+  const unlockNextLevel = () => onChange({ ...c, spellbookUnlockedLevels: Math.min(6, c.spellbookUnlockedLevels + 1) });
+  const updateChapter = (levelIdx: number, spells: string[]) =>
+    onChange({ ...c, spellbook: c.spellbook.map((lvl, idx) => (idx === levelIdx ? spells : lvl)) });
+
+  return (
+    <div className="feature-block show">
+      <h4>Memorized Spells</h4>
+      <Caption>Add each spell you have memorized right now &mdash; memorize the same spell twice to cast it twice. Check it off once it's cast.</Caption>
+      <div className="memorized-list">
+        {c.memorizedSpells.map((sp, i) => (
+          <div className="memorized-row" key={i}>
+            <input type="checkbox" checked={sp.used} disabled={!canEdit} data-tip="Cast today"
+              onChange={(e) => updateMemorized(i, { used: e.target.checked })} />
+            <input className="mem-name" placeholder="Spell name" value={sp.name} disabled={!canEdit}
+              onChange={(e) => updateMemorized(i, { name: e.target.value })} />
+            <select className="mem-level" value={sp.level} disabled={!canEdit}
+              onChange={(e) => updateMemorized(i, { level: Number(e.target.value) })}>
+              {[1, 2, 3, 4, 5, 6].map((l) => <option key={l} value={l}>Lv{l}</option>)}
+            </select>
+            {canEdit && <button className="row-remove" data-tip="Remove" onClick={() => removeMemorized(i)}>&times;</button>}
           </div>
+        ))}
+      </div>
+      {canEdit && <button className="btn text" onClick={addMemorized}>+ Spell</button>}
+
+      {isMU && (
+        <div className="spellbook-wrap">
+          <h4>Spellbook</h4>
+          <Caption>Spells you've learned, chaptered by level. Unlock the next chapter as you gain access to higher-level spells.</Caption>
+          {Array.from({ length: c.spellbookUnlockedLevels }).map((_, li) => (
+            <SpellbookChapter key={li} level={li + 1} spells={c.spellbook[li] ?? []} canEdit={canEdit}
+              onChange={(spells) => updateChapter(li, spells)} />
+          ))}
+          {canEdit && c.spellbookUnlockedLevels < 6 && (
+            <button className="table-toggle" onClick={unlockNextLevel}>+ Level {c.spellbookUnlockedLevels + 1}</button>
+          )}
         </div>
       )}
+
+      <button className="table-toggle" onClick={() => setShowReference((s) => !s)}>
+        {showReference ? "\u25be Hide" : "\u25b8 Show"} full {className} Spell List
+      </button>
+      {showReference && <SpellReferenceList list={referenceList} />}
+    </div>
+  );
+}
+
+function SpellbookChapter({ level, spells, canEdit, onChange }: {
+  level: number; spells: string[]; canEdit: boolean; onChange: (spells: string[]) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const addSpell = () => onChange([...spells, ""]);
+  const updateSpell = (i: number, name: string) => onChange(spells.map((s, idx) => (idx === i ? name : s)));
+  const removeSpell = (i: number) => onChange(spells.filter((_, idx) => idx !== i));
+  const filledCount = spells.filter((s) => s.trim()).length;
+
+  return (
+    <div className="spellbook-chapter">
+      <button className="chapter-toggle" onClick={() => setOpen((o) => !o)}>
+        {open ? "\u25be" : "\u25b8"} Level {level} <span className="chapter-count">({filledCount})</span>
+      </button>
+      {open && (
+        <div className="chapter-body">
+          {spells.map((name, i) => (
+            <div className="chapter-row" key={i}>
+              <input value={name} placeholder="Spell name" disabled={!canEdit} onChange={(e) => updateSpell(i, e.target.value)} />
+              {canEdit && <button className="row-remove" data-tip="Remove" onClick={() => removeSpell(i)}>&times;</button>}
+            </div>
+          ))}
+          {canEdit && <button className="btn text" onClick={addSpell}>+ Spell</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SpellReferenceList({ list }: { list: string[][] }) {
+  return (
+    <div className="spell-reference">
+      {list.map((spells, i) => i > 0 && spells.length > 0 && (
+        <div key={i} className="spell-reference-level">
+          <div className="spell-reference-level-label">Level {i}</div>
+          <ul>
+            {[...spells].sort((a, b) => a.localeCompare(b)).map((name) => <li key={name}>{name}</li>)}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }
