@@ -50,9 +50,9 @@ const SWATCHES: [string, string][] = [
 
 const THIEF_SKILL_KEYS = ["CS", "TR", "HN", "HS", "MS", "OL", "PP"];
 
-function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollTitle }: {
+function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollTitle, unit }: {
   chip: string; value: string | number; onChange?: (v: string) => void;
-  disabled?: boolean; narrow?: string; width?: string; onRoll?: () => void; rollTitle?: string;
+  disabled?: boolean; narrow?: string; width?: string; onRoll?: () => void; rollTitle?: string; unit?: string;
 }) {
   return (
     <div className="chip-row" style={width ? { flex: `0 0 ${width}` } : undefined}>
@@ -63,6 +63,7 @@ function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollT
       )}
       <div className="box">
         <input value={value} disabled={disabled} onChange={(e) => onChange?.(e.target.value)} />
+        {unit && <span className="box-unit">{unit}</span>}
       </div>
       {narrow !== undefined && (
         <div className="box narrow"><input value={narrow} disabled readOnly /></div>
@@ -505,10 +506,10 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
             <h3>Movement</h3>
             <Caption>Base mv. rate = 120, unless encumbered</Caption>
             <Row2>
-              <ChipRow chip="Ov" value={c.overlandMove} disabled={!canEdit} onChange={(v) => set("overlandMove", Number(v) || 0)} />
-              <ChipRow chip="Ex" value={c.baseMove} disabled={!canEdit} onChange={(v) => set("baseMove", Number(v) || 0)} />
+              <ChipRow chip="Ov" value={c.overlandMove} unit="mi" disabled={!canEdit} onChange={(v) => set("overlandMove", Number(v) || 0)} />
+              <ChipRow chip="Ex" value={c.baseMove} unit="ft" disabled={!canEdit} onChange={(v) => set("baseMove", Number(v) || 0)} />
             </Row2>
-            <ChipRow chip="En" value={c.encounterMove} disabled={!canEdit} onChange={(v) => set("encounterMove", Number(v) || 0)} />
+            <ChipRow chip="En" value={c.encounterMove} unit="ft" disabled={!canEdit} onChange={(v) => set("encounterMove", Number(v) || 0)} />
           </div>
 
           <div>
@@ -612,52 +613,61 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
     return "";
   };
 
-  const detailedBoxes: { key: keyof DetailedInventory; title: string }[] = [
-    { key: "equipment", title: "Equipment" },
-    { key: "weaponsArmour", title: "Weapons & Armour" },
-    { key: "magicItems", title: "Magic Items" },
-    { key: "treasure", title: "Treasure" },
+  const detailedBoxes: { key: keyof DetailedInventory; title: string; placeholder: string }[] = [
+    { key: "equipment", title: "Equipment", placeholder: "Adventuring Gear" },
+    { key: "weaponsArmour", title: "Weapons & Armour", placeholder: "Weapon" },
+    { key: "magicItems", title: "Magic Items", placeholder: "Magic Item" },
+    { key: "treasure", title: "Treasure", placeholder: "Gem, Jewelry, Potion..." },
   ];
 
   return (
     <div className="inventory-wrap">
       <div className="inventory-header">
         <h3>Inventory</h3>
-        <div className="inventory-header-right">
-          {c.inventoryMode === "detailed" && (
-            <div className={`weight-total ${detailedTotal > 1600 ? "overloaded" : ""}`}>
-              <span className="weight-total-num">{detailedTotal} cn</span>
-              <span className="weight-total-speed">{detailedTotal > 1600 ? "Can't move" : `\u2192 ${detailedSpeed}' (${Math.round(detailedSpeed / 3)}')`}</span>
-            </div>
-          )}
-          <div className="inv-toggle">
-            <button className={`inv-tab ${c.inventoryMode === "basic" ? "active" : ""}`} disabled={!canEdit}
-              onClick={() => onChange({ ...c, inventoryMode: "basic" })}>Basic</button>
-            <button className={`inv-tab ${c.inventoryMode === "detailed" ? "active" : ""}`} disabled={!canEdit}
-              onClick={() => onChange({ ...c, inventoryMode: "detailed" })}>Detailed</button>
-            <button className={`inv-tab ${c.inventoryMode === "item" ? "active" : ""}`} disabled={!canEdit}
-              onClick={() => onChange({ ...c, inventoryMode: "item" })}>Item-Based</button>
-          </div>
+        <div className="inv-toggle">
+          <button className={`inv-tab ${c.inventoryMode === "basic" ? "active" : ""}`} disabled={!canEdit}
+            onClick={() => onChange({ ...c, inventoryMode: "basic" })}>Basic</button>
+          <button className={`inv-tab ${c.inventoryMode === "detailed" ? "active" : ""}`} disabled={!canEdit}
+            onClick={() => onChange({ ...c, inventoryMode: "detailed" })}>Detailed</button>
+          <button className={`inv-tab ${c.inventoryMode === "item" ? "active" : ""}`} disabled={!canEdit}
+            onClick={() => onChange({ ...c, inventoryMode: "item" })}>Item-Based</button>
         </div>
       </div>
 
       {c.inventoryMode === "basic" && (
-        <>
-          <div className="basic-controls">
-            <div className="armour-toggle">
-              {(["unarmoured", "light", "heavy"] as const).map((a) => (
-                <button key={a} className={`armour-btn ${c.basicInventory.armourType === a ? "active" : ""}`}
-                  disabled={!canEdit} onClick={() => setBasic("armourType", a)}>
-                  {a.charAt(0).toUpperCase() + a.slice(1)}
-                </button>
-              ))}
-            </div>
-            <label className="treasure-check">
-              <input type="checkbox" checked={c.basicInventory.carryingTreasure} disabled={!canEdit}
-                onChange={(e) => setBasic("carryingTreasure", e.target.checked)} />
-              With Treasure
-            </label>
+        <div className="inventory-status-row">
+          <div className="armour-toggle">
+            {(["unarmoured", "light", "heavy"] as const).map((a) => (
+              <button key={a} className={`armour-btn ${c.basicInventory.armourType === a ? "active" : ""}`}
+                disabled={!canEdit} onClick={() => setBasic("armourType", a)}>
+                {a.charAt(0).toUpperCase() + a.slice(1)}
+              </button>
+            ))}
           </div>
+          <label className="treasure-check">
+            <input type="checkbox" checked={c.basicInventory.carryingTreasure} disabled={!canEdit}
+              onChange={(e) => setBasic("carryingTreasure", e.target.checked)} />
+            With Treasure
+          </label>
+          <div className="weight-total">
+            <span className="weight-total-speed">
+              &#8594; {BASIC_MOVEMENT[c.basicInventory.armourType][c.basicInventory.carryingTreasure ? "with" : "without"]}'
+              ({Math.round(BASIC_MOVEMENT[c.basicInventory.armourType][c.basicInventory.carryingTreasure ? "with" : "without"] / 3)}')
+            </span>
+          </div>
+        </div>
+      )}
+      {c.inventoryMode === "detailed" && (
+        <div className="inventory-status-row">
+          <div className={`weight-total ${detailedTotal > 1600 ? "overloaded" : ""}`}>
+            <span className="weight-total-num">{detailedTotal} cn</span>
+            <span className="weight-total-speed">{detailedTotal > 1600 ? "Can't move" : `\u2192 ${detailedSpeed}' (${Math.round(detailedSpeed / 3)}')`}</span>
+          </div>
+        </div>
+      )}
+
+      {c.inventoryMode === "basic" && (
+        <>
           <Caption>Movement is set by armour worn, and whether the referee judges you're carrying a significant amount of treasure - not by what's actually in these boxes.</Caption>
           <div className="inv-grid">
             <div className="inv-box">
@@ -682,7 +692,7 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
 
       {c.inventoryMode === "detailed" && (
         <div className="inv-grid">
-          {detailedBoxes.map(({ key, title }) => (
+          {detailedBoxes.map(({ key, title, placeholder }) => (
             <div className="inv-box" key={key}>
               <h4>{title}</h4>
               <div className="weighted-list">
@@ -692,7 +702,7 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
                 </div>
                 {c.detailedInventory[key].map((item, i) => (
                   <div className="weighted-row" key={i}>
-                    <input className="weighted-name" value={item.name} disabled={!canEdit}
+                    <input className="weighted-name" value={item.name} placeholder={placeholder} disabled={!canEdit}
                       onChange={(e) => setDetailedItem(key, i, { name: e.target.value })} />
                     <input className="weighted-weight" type="number" value={item.weight} disabled={!canEdit}
                       onChange={(e) => setDetailedItem(key, i, { weight: Number(e.target.value) || 0 })} />

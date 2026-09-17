@@ -70,6 +70,10 @@ button.chip{ cursor:pointer; }
   font-size:14px; padding:6px 8px; color:var(--ink); min-width:0;
 }
 .box input:disabled{ color:var(--ink); opacity:1; -webkit-text-fill-color:var(--ink); }
+.box-unit{
+  font-family:'Oswald', sans-serif; font-size:11px; color:var(--caption); align-self:center;
+  padding-right:8px; white-space:nowrap;
+}
 .box.narrow{ flex:0 0 44px; }
 .box.narrow input{ font-weight:700; text-align:center; }
 .box.player-box{ flex:0 0 42%; }
@@ -247,7 +251,7 @@ textarea.locked{ resize:none; }
 /* Encumbrance table */
 .inventory-wrap{ margin-top:18px; padding-top:14px; border-top:2px solid var(--ink); }
 .inventory-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px; }
-.inventory-header-right{ display:flex; align-items:center; gap:12px; }
+.inventory-status-row{ display:flex; align-items:center; gap:14px; margin-bottom:10px; flex-wrap:wrap; }
 .inv-toggle{ display:flex; border:1.5px solid var(--ink); flex-shrink:0; }
 .inv-tab{
   font-family:'Oswald',sans-serif; font-weight:600; font-size:11px; text-transform:uppercase;
@@ -265,7 +269,6 @@ textarea.locked{ resize:none; }
 .weight-total.overloaded{ background:#f5dada; border-color:#a11414; color:#8c1414; }
 .weight-total.overloaded .weight-total-speed{ color:#8c1414; font-weight:700; }
 
-.basic-controls{ display:flex; align-items:center; gap:14px; margin-bottom:6px; flex-wrap:wrap; }
 .armour-toggle{ display:flex; border:1.5px solid var(--ink); }
 .armour-btn{
   font-family:'Oswald',sans-serif; font-weight:600; font-size:11px; text-transform:uppercase;

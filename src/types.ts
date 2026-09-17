@@ -175,7 +175,12 @@ export function blankCharacter(id: string, ownerId: string): Character {
 
     inventoryMode: "basic",
     basicInventory: { armourType: "unarmoured", carryingTreasure: false, equipment: "", weaponsArmour: "", magicItems: "", treasure: "" },
-    detailedInventory: { equipment: [], weaponsArmour: [], magicItems: [], treasure: [] },
+    detailedInventory: {
+      equipment: [{ name: "", weight: 0 }],
+      weaponsArmour: [{ name: "", weight: 0 }],
+      magicItems: [{ name: "", weight: 0 }],
+      treasure: [{ name: "", weight: 0 }],
+    },
     itemBasedInventory: {
       unencumbering: "",
       equipped: ["", "", "", "", "", ""],
