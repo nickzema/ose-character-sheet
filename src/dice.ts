@@ -17,9 +17,18 @@ interface RollResult {
   groups: DiceGroup[];
 }
 
-export interface RollOutcome {
-  summary: string;
+/** One labeled part of a roll (e.g. "Longsword" attack, or "Damage") with
+ *  its own total and the individual die values that made it up, so the UI
+ *  can show a clean breakdown instead of a flat text summary. */
+export interface RollPart {
+  label: string;
   total: number;
+  dice: number[];
+}
+
+export interface RollOutcome {
+  total: number;
+  parts: RollPart[];
   /** True whenever this specific roll did NOT come from Dice+ - either
    *  because Dice+ isn't in the room, or (rare) because it didn't respond
    *  in time. The UI should always say so when this is true, rather than
@@ -60,18 +69,20 @@ export async function isDicePlusReady(): Promise<boolean> {
 }
 
 /**
- * Send a roll to Dice+ and resolve with its result. Once Dice+ is confirmed
- * present, this WAITS for its real response rather than racing a short
- * timeout - a short timeout that gives up and substitutes a different local
- * random roll is exactly what caused rolls to visibly disagree with what
- * Dice+ actually showed. The 20s ceiling below is just a sanity net for a
- * genuinely broken connection, not a normal code path.
+ * Send a roll to Dice+ and resolve with its result, broken into labeled
+ * parts (one per comma-separated notation group) rather than Dice+'s own
+ * flat summary string, so the UI can lay each part out cleanly instead of
+ * dumping raw text. Once Dice+ is confirmed present, this WAITS for its
+ * real response rather than racing a short timeout - a short timeout that
+ * gives up and substitutes a different local random roll is exactly what
+ * caused rolls to visibly disagree with what Dice+ actually showed. The
+ * 20s ceiling below is just a sanity net for a genuinely broken
+ * connection, not a normal code path.
  */
-export async function rollNotation(notation: string, _label: string): Promise<RollOutcome> {
+export async function rollNotation(notation: string): Promise<RollOutcome> {
   const ready = await isDicePlusReady();
   if (!ready) {
-    const r = await localRoll(notation);
-    return { ...r, usedFallback: true, fallbackReason: "not-detected" };
+    return { ...localRoll(notation), usedFallback: true, fallbackReason: "not-detected" };
   }
 
   const rollId = `roll_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -84,7 +95,12 @@ export async function rollNotation(notation: string, _label: string): Promise<Ro
       if (data.rollId !== rollId) return;
       unsubResult();
       unsubError();
-      resolve({ summary: data.result.rollSummary, total: data.result.totalValue, usedFallback: false });
+      const parts: RollPart[] = data.result.groups.map((g) => ({
+        label: g.description || g.diceType,
+        total: g.total,
+        dice: g.dice.filter((d) => d.kept).map((d) => d.value),
+      }));
+      resolve({ total: data.result.totalValue, parts, usedFallback: false });
     });
     const unsubError = OBR.broadcast.onMessage(`${SOURCE}/roll-error`, (event) => {
       const data = event.data as { rollId: string; error: string };
@@ -92,7 +108,7 @@ export async function rollNotation(notation: string, _label: string): Promise<Ro
       unsubResult();
       unsubError();
       // Dice+ reported an error rolling our own notation - fall back locally.
-      localRoll(notation).then((r) => resolve({ ...r, usedFallback: true, fallbackReason: "not-detected" }));
+      resolve({ ...localRoll(notation), usedFallback: true, fallbackReason: "not-detected" });
     });
 
     OBR.broadcast.sendMessage(
@@ -116,7 +132,7 @@ export async function rollNotation(notation: string, _label: string): Promise<Ro
     setTimeout(() => {
       unsubResult();
       unsubError();
-      localRoll(notation).then((r) => resolve({ ...r, usedFallback: true, fallbackReason: "timeout" }));
+      resolve({ ...localRoll(notation), usedFallback: true, fallbackReason: "timeout" });
     }, 20000);
   });
 }
@@ -135,43 +151,43 @@ export function termString(terms: number[]): string {
  *  are kept as separate addends (not pre-summed) so the roll notation shows
  *  each source, e.g. "1d20+2+2" instead of "1d20+4". dmgMod is added to the
  *  damage roll - pass 0 for ranged weapons, since only STR (melee) adds to
- *  damage in OSE, never the attack bonus or DEX. */
+ *  damage in OSE, never the attack bonus or DEX. Returns attack and damage
+ *  as separate labeled parts for a clean two-row display. */
 export async function rollWeapon(
-  weaponName: string,
+  _weaponName: string,
   damage: string,
   attackBonus: number,
   hitAbilityMod: number,
   dmgMod: number
 ): Promise<RollOutcome> {
   const dmg = damage.trim().toLowerCase().startsWith("d") ? `1${damage.trim()}` : damage.trim();
-  const atkPart = `1d20${termString([attackBonus, hitAbilityMod])} #${weaponName || "Attack"}`;
+  const atkPart = `1d20${termString([attackBonus, hitAbilityMod])} #Attack`;
   const dmgPart = `${dmg}${termString([dmgMod])} #Damage`;
-  return rollNotation(`${atkPart}, ${dmgPart}`, weaponName || "Weapon");
+  return rollNotation(`${atkPart}, ${dmgPart}`);
 }
 
-async function localRoll(notation: string): Promise<{ summary: string; total: number }> {
-  const parts = notation.split(",").map((p) => p.trim());
-  const summaries: string[] = [];
+function localRoll(notation: string): Omit<RollOutcome, "usedFallback" | "fallbackReason"> {
+  const rawParts = notation.split(",").map((p) => p.trim());
+  const parts: RollPart[] = [];
   let firstTotal = 0;
 
-  parts.forEach((part, i) => {
-    const withoutLabel = part.split("#")[0].trim();
-    const match = withoutLabel.match(/^(\d+)d(\d+)((?:[+-]\d+)*)$/i);
+  rawParts.forEach((part, i) => {
+    const [dicePart, labelPart] = part.split("#").map((s) => s.trim());
+    const match = dicePart.match(/^(\d+)d(\d+)((?:[+-]\d+)*)$/i);
+    const label = labelPart || `Roll ${i + 1}`;
     if (!match) {
-      summaries.push(part);
+      parts.push({ label, total: 0, dice: [] });
       return;
     }
     const count = parseInt(match[1], 10);
     const sides = parseInt(match[2], 10);
     const modTerms = match[3] ? match[3].match(/[+-]\d+/g) || [] : [];
     const mod = modTerms.reduce((sum, t) => sum + parseInt(t, 10), 0);
-    const rolls = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
-    const sum = rolls.reduce((a, b) => a + b, 0) + mod;
-    if (i === 0) firstTotal = sum;
-    const modLabel = modTerms.length ? modTerms.join("") : "";
-    summaries.push(`[${rolls.join(", ")}]${modLabel} = ${sum}`);
+    const dice = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
+    const total = dice.reduce((a, b) => a + b, 0) + mod;
+    if (i === 0) firstTotal = total;
+    parts.push({ label, total, dice });
   });
 
-  const summary = `${summaries.join(" | ")}`;
-  return { summary, total: firstTotal };
+  return { total: firstTotal, parts };
 }

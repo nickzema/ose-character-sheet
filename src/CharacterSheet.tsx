@@ -1,6 +1,9 @@
 import { useState } from "react";
-import type { Character, Weapon, SpellLevel } from "./types";
-import { abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS } from "./abilities";
+import type { Character, Weapon, SpellLevel, BasicInventory, DetailedInventory, WeightedItem, ArmourType } from "./types";
+import {
+  abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS,
+  movementTriple, BASIC_MOVEMENT, detailedSpeedForWeight,
+} from "./abilities";
 import { rollWeapon, rollNotation, termString } from "./dice";
 
 interface RollState {
@@ -8,7 +11,8 @@ interface RollState {
   outcome: "success" | "fail" | "neutral";
   rolled?: number;
   target?: number;
-  detail?: string; // used when there's no single rolled/target pair (weapon attack+damage, "Rolling...", auto-turn, etc.)
+  detail?: string; // used for plain text states like "Rolling...", "Cannot be turned", "Auto-Turn!"
+  parts?: { label: string; total: number; dice: number[] }[]; // clean multi-row display (weapon attack+damage)
   fallbackNote?: string;
 }
 
@@ -74,7 +78,17 @@ function RollBanner({ roll, onDismiss }: { roll: RollState | null; onDismiss: ()
     <div className={`roll-banner ${roll.outcome}`}>
       <button className="roll-dismiss" onClick={onDismiss} title="Dismiss">&times;</button>
       <div className="roll-label">{roll.label}</div>
-      {roll.rolled !== undefined ? (
+      {roll.parts ? (
+        <div className="roll-parts">
+          {roll.parts.map((p, i) => (
+            <div className="roll-part" key={i}>
+              <span className="roll-part-label">{p.label}</span>
+              <span className="roll-part-total">{p.total}</span>
+              {p.dice.length > 0 && <span className="roll-part-dice">[{p.dice.join(", ")}]</span>}
+            </div>
+          ))}
+        </div>
+      ) : roll.rolled !== undefined ? (
         <div className="roll-numbers">
           {roll.rolled}
           {roll.target !== undefined && <><span className="vs">vs</span>{roll.target}</>}
@@ -176,7 +190,7 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
     interpret: (total: number) => { outcome: RollState["outcome"]; rolled?: number; target?: number; detail?: string }
   ) => {
     setRoll({ label, detail: "Rolling...", outcome: "neutral" });
-    const { total, usedFallback, fallbackReason } = await rollNotation(notation, label);
+    const { total, usedFallback, fallbackReason } = await rollNotation(notation);
     setRoll({ label, ...interpret(total), fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined });
     return total;
   };
@@ -261,14 +275,12 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
       rolled: t, target, outcome: t >= target ? "success" : "fail",
     }));
     if (total >= target) {
-      setTimeout(async () => {
-        const { total: hdTotal, usedFallback, fallbackReason } = await rollNotation("2d6", "HD Turned");
-        setRoll({
-          label: `Turn Undead (HD ${col})`, outcome: "success",
-          detail: `Success \u2014 turns ${hdTotal} HD worth of undead`,
-          fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined,
-        });
-      }, 1000);
+      const { total: hdTotal, usedFallback, fallbackReason } = await rollNotation("2d6");
+      setRoll({
+        label: `Turn Undead (HD ${col})`, outcome: "success",
+        detail: `Success \u2014 turns ${hdTotal} HD worth of undead`,
+        fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined,
+      });
     }
   };
 
@@ -276,9 +288,9 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
     setRoll({ label: weapon.name || "Weapon", detail: "Rolling...", outcome: "neutral" });
     const hitAbilityMod = weapon.ranged ? dexMod : strMod;
     const dmgMod = weapon.ranged ? 0 : strMod; // only STR/melee adds to damage - never the attack bonus or DEX
-    const { summary, usedFallback, fallbackReason } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, hitAbilityMod, dmgMod);
+    const { parts, usedFallback, fallbackReason } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, hitAbilityMod, dmgMod);
     setRoll({
-      label: weapon.name || "Weapon", detail: summary, outcome: "neutral",
+      label: weapon.name || "Weapon", parts, outcome: "neutral",
       fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined,
     });
   };
@@ -542,8 +554,45 @@ export default function CharacterSheet({ character: c, canEdit, onChange, onDele
 function InventorySection({ character: c, canEdit, onChange, strTags }: {
   character: Character; canEdit: boolean; onChange: (c: Character) => void; strTags: string[];
 }) {
-  const setStd = (k: keyof Character["standardInventory"], v: string) =>
-    onChange({ ...c, standardInventory: { ...c.standardInventory, [k]: v } });
+  const applyMovement = (base: number, patch: Partial<Character> = {}) => {
+    const { overland, exploration, encounter } = movementTriple(base);
+    onChange({ ...c, ...patch, baseMove: exploration, overlandMove: overland, encounterMove: encounter });
+  };
+
+  const setBasic = (k: keyof BasicInventory, v: string | boolean) => {
+    const basicInventory = { ...c.basicInventory, [k]: v };
+    if (k === "armourType" || k === "carryingTreasure") {
+      const armourType = (k === "armourType" ? v : c.basicInventory.armourType) as ArmourType;
+      const withTreasure = (k === "carryingTreasure" ? v : c.basicInventory.carryingTreasure) as boolean;
+      const base = BASIC_MOVEMENT[armourType][withTreasure ? "with" : "without"];
+      applyMovement(base, { basicInventory });
+    } else {
+      onChange({ ...c, basicInventory });
+    }
+  };
+
+  const detailedTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+    .reduce((sum, k) => sum + c.detailedInventory[k].reduce((s, item) => s + (item.weight || 0), 0), 0);
+  const detailedSpeed = detailedSpeedForWeight(detailedTotal);
+
+  const setDetailedItem = (category: keyof DetailedInventory, i: number, patch: Partial<WeightedItem>) => {
+    const items = c.detailedInventory[category].map((it, idx) => (idx === i ? { ...it, ...patch } : it));
+    const detailedInventory = { ...c.detailedInventory, [category]: items };
+    const newTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+      .reduce((sum, k) => sum + detailedInventory[k].reduce((s, it) => s + (it.weight || 0), 0), 0);
+    applyMovement(detailedSpeedForWeight(newTotal), { detailedInventory });
+  };
+  const addDetailedRow = (category: keyof DetailedInventory) => {
+    onChange({ ...c, detailedInventory: { ...c.detailedInventory, [category]: [...c.detailedInventory[category], { name: "", weight: 0 }] } });
+  };
+  const removeDetailedRow = (category: keyof DetailedInventory, i: number) => {
+    const items = c.detailedInventory[category].filter((_, idx) => idx !== i);
+    const detailedInventory = { ...c.detailedInventory, [category]: items };
+    const newTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+      .reduce((sum, k) => sum + detailedInventory[k].reduce((s, it) => s + (it.weight || 0), 0), 0);
+    applyMovement(detailedSpeedForWeight(newTotal), { detailedInventory });
+  };
+
   const setUnenc = (v: string) => onChange({ ...c, itemBasedInventory: { ...c.itemBasedInventory, unencumbering: v } });
   const setEquipped = (i: number, v: string) => {
     const arr = [...c.itemBasedInventory.equipped]; arr[i] = v;
@@ -563,38 +612,101 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
     return "";
   };
 
+  const detailedBoxes: { key: keyof DetailedInventory; title: string }[] = [
+    { key: "equipment", title: "Equipment" },
+    { key: "weaponsArmour", title: "Weapons & Armour" },
+    { key: "magicItems", title: "Magic Items" },
+    { key: "treasure", title: "Treasure" },
+  ];
+
   return (
     <div className="inventory-wrap">
       <div className="inventory-header">
         <h3>Inventory</h3>
-        <div className="inv-toggle">
-          <button className={`inv-tab ${c.inventoryMode === "standard" ? "active" : ""}`} disabled={!canEdit}
-            onClick={() => onChange({ ...c, inventoryMode: "standard" })}>Standard</button>
-          <button className={`inv-tab ${c.inventoryMode === "item" ? "active" : ""}`} disabled={!canEdit}
-            onClick={() => onChange({ ...c, inventoryMode: "item" })}>Item-Based</button>
+        <div className="inventory-header-right">
+          {c.inventoryMode === "detailed" && (
+            <div className={`weight-total ${detailedTotal > 1600 ? "overloaded" : ""}`}>
+              <span className="weight-total-num">{detailedTotal} cn</span>
+              <span className="weight-total-speed">{detailedTotal > 1600 ? "Can't move" : `\u2192 ${detailedSpeed}' (${Math.round(detailedSpeed / 3)}')`}</span>
+            </div>
+          )}
+          <div className="inv-toggle">
+            <button className={`inv-tab ${c.inventoryMode === "basic" ? "active" : ""}`} disabled={!canEdit}
+              onClick={() => onChange({ ...c, inventoryMode: "basic" })}>Basic</button>
+            <button className={`inv-tab ${c.inventoryMode === "detailed" ? "active" : ""}`} disabled={!canEdit}
+              onClick={() => onChange({ ...c, inventoryMode: "detailed" })}>Detailed</button>
+            <button className={`inv-tab ${c.inventoryMode === "item" ? "active" : ""}`} disabled={!canEdit}
+              onClick={() => onChange({ ...c, inventoryMode: "item" })}>Item-Based</button>
+          </div>
         </div>
       </div>
 
-      {c.inventoryMode === "standard" ? (
+      {c.inventoryMode === "basic" && (
+        <>
+          <div className="basic-controls">
+            <div className="armour-toggle">
+              {(["unarmoured", "light", "heavy"] as const).map((a) => (
+                <button key={a} className={`armour-btn ${c.basicInventory.armourType === a ? "active" : ""}`}
+                  disabled={!canEdit} onClick={() => setBasic("armourType", a)}>
+                  {a.charAt(0).toUpperCase() + a.slice(1)}
+                </button>
+              ))}
+            </div>
+            <label className="treasure-check">
+              <input type="checkbox" checked={c.basicInventory.carryingTreasure} disabled={!canEdit}
+                onChange={(e) => setBasic("carryingTreasure", e.target.checked)} />
+              With Treasure
+            </label>
+          </div>
+          <Caption>Movement is set by armour worn, and whether the referee judges you're carrying a significant amount of treasure - not by what's actually in these boxes.</Caption>
+          <div className="inv-grid">
+            <div className="inv-box">
+              <h4>Equipment</h4>
+              <textarea rows={7} value={c.basicInventory.equipment} disabled={!canEdit} onChange={(e) => setBasic("equipment", e.target.value)} />
+            </div>
+            <div className="inv-box">
+              <h4>Weapons &amp; Armour</h4>
+              <textarea rows={7} value={c.basicInventory.weaponsArmour} disabled={!canEdit} onChange={(e) => setBasic("weaponsArmour", e.target.value)} />
+            </div>
+            <div className="inv-box">
+              <h4>Magic Items</h4>
+              <textarea rows={7} value={c.basicInventory.magicItems} disabled={!canEdit} onChange={(e) => setBasic("magicItems", e.target.value)} />
+            </div>
+            <div className="inv-box">
+              <h4>Treasure</h4>
+              <textarea rows={7} value={c.basicInventory.treasure} disabled={!canEdit} onChange={(e) => setBasic("treasure", e.target.value)} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {c.inventoryMode === "detailed" && (
         <div className="inv-grid">
-          <div className="inv-box">
-            <h4>Equipment</h4>
-            <textarea rows={7} value={c.standardInventory.equipment} disabled={!canEdit} onChange={(e) => setStd("equipment", e.target.value)} />
-          </div>
-          <div className="inv-box">
-            <h4>Weapons &amp; Armour</h4>
-            <textarea rows={7} value={c.standardInventory.weaponsArmour} disabled={!canEdit} onChange={(e) => setStd("weaponsArmour", e.target.value)} />
-          </div>
-          <div className="inv-box">
-            <h4>Magic Items</h4>
-            <textarea rows={7} value={c.standardInventory.magicItems} disabled={!canEdit} onChange={(e) => setStd("magicItems", e.target.value)} />
-          </div>
-          <div className="inv-box">
-            <h4>Treasure</h4>
-            <textarea rows={7} value={c.standardInventory.treasure} disabled={!canEdit} onChange={(e) => setStd("treasure", e.target.value)} />
-          </div>
+          {detailedBoxes.map(({ key, title }) => (
+            <div className="inv-box" key={key}>
+              <h4>{title}</h4>
+              <div className="weighted-list">
+                <div className="weighted-row weighted-head">
+                  <span className="caption" style={{ margin: 0 }}>Item</span>
+                  <span className="caption" style={{ margin: 0 }}>Wt (cn)</span>
+                </div>
+                {c.detailedInventory[key].map((item, i) => (
+                  <div className="weighted-row" key={i}>
+                    <input className="weighted-name" value={item.name} disabled={!canEdit}
+                      onChange={(e) => setDetailedItem(key, i, { name: e.target.value })} />
+                    <input className="weighted-weight" type="number" value={item.weight} disabled={!canEdit}
+                      onChange={(e) => setDetailedItem(key, i, { weight: Number(e.target.value) || 0 })} />
+                    {canEdit && <button className="weighted-remove" onClick={() => removeDetailedRow(key, i)}>&times;</button>}
+                  </div>
+                ))}
+                {canEdit && <button className="btn text" onClick={() => addDetailedRow(key)}>+ Item</button>}
+              </div>
+            </div>
+          ))}
         </div>
-      ) : (
+      )}
+
+      {c.inventoryMode === "item" && (
         <div className="encumbrance-grid">
           <table className="encumbrance-table">
             <colgroup><col style={{ width: "38%" }} /><col style={{ width: 80 }} /><col /></colgroup>

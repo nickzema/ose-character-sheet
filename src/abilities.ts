@@ -78,3 +78,41 @@ export function turnUndeadForLevel(level: number): (string | number)[] {
   const idx = Math.max(1, Math.min(11, level)) - 1;
   return TURN_TABLE[idx];
 }
+
+// Movement rate helper: given a base (Exploration) speed, derive the
+// matching Overland (mi/day) and Encounter (ft/round) values the same way
+// the OSE tables always pair them, e.g. "120' (40')" = Ex 120, En 40.
+export function movementTriple(base: number): { overland: number; exploration: number; encounter: number } {
+  return {
+    overland: Math.round((base / 5) * 10) / 10,
+    exploration: base,
+    encounter: Math.round(base / 3),
+  };
+}
+
+// Basic Encumbrance (OSE SRD, Time/Weight/Movement): movement depends only
+// on armour worn and whether the referee judges the character to be
+// carrying a significant amount of treasure - not on tracked weight.
+export const BASIC_MOVEMENT: Record<string, { without: number; with: number }> = {
+  unarmoured: { without: 120, with: 90 },
+  light: { without: 90, with: 60 },
+  heavy: { without: 60, with: 30 },
+};
+
+// Detailed Encumbrance (OSE SRD): movement depends on total weight in
+// coins, checked against these breakpoints. This table is the same for
+// every character regardless of STR - OSE deliberately leaves STR out of
+// this system. Over 1,600 coins, the character can't move at all.
+export const DETAILED_BREAKPOINTS: { max: number; speed: number }[] = [
+  { max: 400, speed: 120 },
+  { max: 600, speed: 90 },
+  { max: 800, speed: 60 },
+  { max: 1600, speed: 30 },
+];
+
+export function detailedSpeedForWeight(totalWeight: number): number {
+  for (const bp of DETAILED_BREAKPOINTS) {
+    if (totalWeight <= bp.max) return bp.speed;
+  }
+  return 0; // over max load - can't move
+}

@@ -27,11 +27,27 @@ export interface SpellLevel {
   known: string;
 }
 
-export interface StandardInventory {
+export type ArmourType = "unarmoured" | "light" | "heavy";
+
+export interface BasicInventory {
+  armourType: ArmourType;
+  carryingTreasure: boolean;
   equipment: string;
   weaponsArmour: string;
   magicItems: string;
   treasure: string;
+}
+
+export interface WeightedItem {
+  name: string;
+  weight: number; // coin-weight (cn); 10 cn = 1 lb per OSE
+}
+
+export interface DetailedInventory {
+  equipment: WeightedItem[];
+  weaponsArmour: WeightedItem[];
+  magicItems: WeightedItem[];
+  treasure: WeightedItem[];
 }
 
 export interface ItemBasedInventory {
@@ -48,7 +64,7 @@ export interface Coins {
   cp: number;
 }
 
-export type InventoryMode = "standard" | "item";
+export type InventoryMode = "basic" | "detailed" | "item";
 
 export interface Character {
   id: string;
@@ -94,7 +110,8 @@ export interface Character {
   weapons: Weapon[];
 
   inventoryMode: InventoryMode;
-  standardInventory: StandardInventory;
+  basicInventory: BasicInventory;
+  detailedInventory: DetailedInventory;
   itemBasedInventory: ItemBasedInventory;
   coins: Coins;
 
@@ -156,8 +173,9 @@ export function blankCharacter(id: string, ownerId: string): Character {
 
     weapons: [{ name: "", damage: "", ranged: false }],
 
-    inventoryMode: "standard",
-    standardInventory: { equipment: "", weaponsArmour: "", magicItems: "", treasure: "" },
+    inventoryMode: "basic",
+    basicInventory: { armourType: "unarmoured", carryingTreasure: false, equipment: "", weaponsArmour: "", magicItems: "", treasure: "" },
+    detailedInventory: { equipment: [], weaponsArmour: [], magicItems: [], treasure: [] },
     itemBasedInventory: {
       unencumbering: "",
       equipped: ["", "", "", "", "", ""],
@@ -185,12 +203,22 @@ export function blankCharacter(id: string, ownerId: string): Character {
  */
 export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: string }): Character {
   const blank = blankCharacter(raw.id, raw.ownerId ?? "unknown");
+  // Old saved data used inventoryMode "standard" before Basic/Detailed were split out - treat it as Basic.
+  const inventoryMode: InventoryMode = (raw.inventoryMode as string) === "standard" ? "basic" : (raw.inventoryMode ?? blank.inventoryMode);
+  const oldStandard = (raw as unknown as { standardInventory?: Partial<BasicInventory> }).standardInventory;
   return {
     ...blank,
     ...raw,
+    inventoryMode,
     abilities: { ...blank.abilities, ...raw.abilities },
     saves: { ...blank.saves, ...raw.saves },
-    standardInventory: { ...blank.standardInventory, ...raw.standardInventory },
+    basicInventory: { ...blank.basicInventory, ...oldStandard, ...raw.basicInventory },
+    detailedInventory: {
+      equipment: raw.detailedInventory?.equipment ?? blank.detailedInventory.equipment,
+      weaponsArmour: raw.detailedInventory?.weaponsArmour ?? blank.detailedInventory.weaponsArmour,
+      magicItems: raw.detailedInventory?.magicItems ?? blank.detailedInventory.magicItems,
+      treasure: raw.detailedInventory?.treasure ?? blank.detailedInventory.treasure,
+    },
     itemBasedInventory: {
       unencumbering: raw.itemBasedInventory?.unencumbering ?? blank.itemBasedInventory.unencumbering,
       equipped: raw.itemBasedInventory?.equipped?.length ? raw.itemBasedInventory.equipped : blank.itemBasedInventory.equipped,
