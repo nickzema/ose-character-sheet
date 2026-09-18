@@ -206,12 +206,15 @@ textarea.locked{ resize:none; }
 
 .color-picker{ display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap; position:relative; }
 .color-current{ width:26px; height:26px; border:1.5px solid var(--ink); cursor:pointer; padding:0; }
-.color-label{ font-family:'Oswald',sans-serif; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--caption); cursor:pointer; }
+.color-label{ font-family:'Oswald',sans-serif; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--caption); cursor:pointer;
+  max-width:120px; overflow:hidden; white-space:nowrap; transition: max-width 0.3s ease, opacity 0.24s ease, margin 0.3s ease; }
+.color-label.hidden{ max-width:0; opacity:0; margin-right:-8px; pointer-events:none; }
 .color-options{
   display:flex; gap:6px; max-width:0; opacity:0; overflow:hidden;
-  transition: max-width 0.28s ease, opacity 0.2s ease;
+  transition: max-width 0.3s ease, opacity 0.24s ease;
+  pointer-events:none; /* swatches sliding under a stationary cursor mid-fold must not react */
 }
-.color-options.open{ max-width:320px; opacity:1; }
+.color-options.open{ max-width:196px; opacity:1; pointer-events:auto; }
 .swatch{ width:22px; height:22px; flex-shrink:0; border:1.5px solid var(--ink); cursor:pointer; padding:0; }
 
 .chip-toggle{ cursor:pointer; transition: background 0.12s ease; }

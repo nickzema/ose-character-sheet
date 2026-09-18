@@ -203,6 +203,9 @@ function Caption({ children }: { children: React.ReactNode }) {
 
 export default function CharacterSheet({ character: c, canEdit, isGM, onChange, onDelete, onBack }: Props) {
   const [colorOpen, setColorOpen] = useState(false);
+  // Hovering a swatch only previews it (never saved); clicking commits and folds the picker shut.
+  const [previewColor, setPreviewColor] = useState<string | null>(null);
+  const shownColor = previewColor ?? c.color;
   const [portraitUrlDraft, setPortraitUrlDraft] = useState("");
 
   const set = <K extends keyof Character>(key: K, value: Character[K]) => onChange({ ...c, [key]: value });
@@ -408,7 +411,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
   const strTags = ["STR 18+", "STR 16+", "STR 13+", "STR 9+", "STR 6+", "STR 4+"];
 
   return (
-    <div className="sheet-view" style={{ background: c.color, ["--sheet-bg" as string]: c.color }}>
+    <div className="sheet-view" style={{ background: shownColor, ["--sheet-bg" as string]: shownColor }}>
       <div className="sheet-topbar">
         <button className="btn text" onClick={onBack}>&larr; All characters</button>
         <div className="sheet-topbar-right">
@@ -428,15 +431,14 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
       </div>
 
       <div className="color-picker">
-        <button className="color-current" data-tour="color-swatch" style={{ background: c.color }} onClick={() => setColorOpen((o) => !o)} disabled={!canEdit} />
-        {!colorOpen && (
-          <span className="color-label" onClick={() => canEdit && setColorOpen(true)}>Sheet Color</span>
-        )}
-        <div className={`color-options ${colorOpen ? "open" : ""}`}>
+        <button className="color-current" data-tour="color-swatch" style={{ background: shownColor }}
+          onClick={() => { setColorOpen((o) => !o); setPreviewColor(null); }} disabled={!canEdit} />
+        <span className={`color-label ${colorOpen ? "hidden" : ""}`} onClick={() => canEdit && setColorOpen(true)}>Sheet Color</span>
+        <div className={`color-options ${colorOpen ? "open" : ""}`} onMouseLeave={() => setPreviewColor(null)}>
           {SWATCHES.map(([hex, name]) => (
-            <button key={hex} className="swatch" style={{ background: hex }} data-tip={name}
-              onMouseEnter={() => onChange({ ...c, color: hex })}
-              onClick={() => setColorOpen(false)} />
+            <button key={hex} className="swatch" style={{ background: hex }} data-tip={name} tabIndex={colorOpen ? 0 : -1}
+              onMouseEnter={() => setPreviewColor(hex)}
+              onClick={() => { onChange({ ...c, color: hex }); setPreviewColor(null); setColorOpen(false); }} />
           ))}
         </div>
       </div>
