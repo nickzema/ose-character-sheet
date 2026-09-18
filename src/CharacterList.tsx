@@ -77,6 +77,10 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
           </div>
         ))}
       </div>
+      <div className="brand-footer">
+        <img src="/zemaria-icon.png" alt="" />
+        <span>Another Zemaria product</span>
+      </div>
     </div>
   );
 }

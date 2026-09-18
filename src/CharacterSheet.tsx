@@ -632,6 +632,11 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
         <ChipRow chip="Next" value={c.xpNext} disabled={!canEdit} onChange={(v) => set("xpNext", Number(v) || 0)} />
         <ChipRow chip="%" value={c.xpPercent} disabled={!canEdit} onChange={(v) => set("xpPercent", v)} />
       </div>
+
+      <div className="brand-footer">
+        <img src="/zemaria-icon.png" alt="" />
+        <span>Another Zemaria product</span>
+      </div>
     </div>
   );
 }

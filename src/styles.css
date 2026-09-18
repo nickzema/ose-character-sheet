@@ -385,16 +385,29 @@ textarea.locked{ resize:none; }
 
 .encumbrance-grid{ margin-top:0; }
 .encumbrance-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-.encumbrance-table td{ padding:0; vertical-align:top; }
+.encumbrance-table td{ padding:0; vertical-align:bottom; }
 .header-row td{ padding-bottom:8px; vertical-align:bottom; }
 .header-row h3{ margin:0; }
 .mv-header{ text-align:center; font-family:'Oswald',sans-serif; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.03em; color:var(--caption); line-height:1.3; }
 
 .unenc-cell{ padding-right:14px; vertical-align:top; }
-.encumbrance-table .equip-cell{ padding:0 14px 0 0; vertical-align:middle; }
+
+/* Equipped Items and Packed Items rows MUST resolve to identical row
+   heights, row for row, since they sit in the same <tr> down the whole
+   table - the movement-rate labels rowSpan across both columns. Both use
+   the exact same box model (height, padding, vertical-align, and a
+   TD-level - not input-level - border-bottom) so neither column can
+   drift out of alignment with the other as the table goes down. This
+   was the actual bug behind the broken-looking layout: the two columns'
+   ruled lines were positioned by different rules (one on the input,
+   vertically centered; one on the cell, bottom-anchored), so they
+   compounded out of sync row by row. */
+.encumbrance-table .equip-cell{
+  padding:0 14px 4px 0; vertical-align:bottom; height:23px; border-bottom:1.5px solid var(--ink);
+}
 .equip-input{
-  width:100%; border:none; border-bottom:1.5px solid var(--ink); background:transparent;
-  font-family:'Source Serif 4', serif; font-size:13px; padding:4px 2px; color:var(--ink);
+  width:100%; border:none; background:transparent;
+  font-family:'Source Serif 4', serif; font-size:13px; padding:0 2px; color:var(--ink);
 }
 .encumbrance-table .ladder-cell{
   text-align:center; vertical-align:middle; font-family:'Oswald',sans-serif;
@@ -402,10 +415,13 @@ textarea.locked{ resize:none; }
 }
 .encumbrance-table .ladder-cell.first-zone{ border-top:none; }
 
-.packed-cell{ border-bottom:1.5px solid var(--ink); padding:4px 2px !important; }
+.packed-cell{
+  border-bottom:1.5px solid var(--ink) !important; padding:0 2px 4px !important;
+  height:23px; vertical-align:bottom;
+}
 .packed-cell input{
   width:75%; border:none; background:transparent; font-family:'Source Serif 4', serif;
-  font-size:13px; padding:4px 2px; color:var(--ink);
+  font-size:13px; padding:0 2px; color:var(--ink);
 }
 .str-tag{ font-family:'Source Serif 4', serif; font-style:italic; font-size:10.5px; color:var(--caption); float:right; }
 
@@ -524,3 +540,15 @@ textarea.locked{ resize:none; }
   font-size:11px; padding:3px 0; color:var(--ink);
 }
 .assign-empty, .assign-done{ font-family:'Source Serif 4', serif; font-style:italic; color:var(--caption); }
+
+/* Brand footer */
+.brand-footer{
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  margin-top:22px; padding-top:12px; border-top:1px solid rgba(17,17,17,0.15);
+  opacity:0.55;
+}
+.brand-footer img{ width:16px; height:16px; }
+.brand-footer span{
+  font-family:'Oswald',sans-serif; font-weight:600; font-size:10px; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--ink);
+}
