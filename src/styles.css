@@ -155,28 +155,49 @@ textarea.locked{ resize:none; }
 
 .btn.text.hidden-active{ color:var(--hp-dead); }
 
-/* Help popover */
-.help-wrap{ position:relative; display:inline-flex; }
+/* Help tour - a walkthrough that points an arrow at the real element it's
+   describing, rather than a single wall-of-text popover */
 .help-btn{
   width:22px; height:22px; border-radius:50%; border:1.5px solid var(--ink); background:#FCFBF8;
   color:var(--ink); font-family:'Oswald',sans-serif; font-weight:700; font-size:12px; cursor:pointer;
-  padding:0; line-height:1; display:flex; align-items:center; justify-content:center;
+  padding:0; line-height:1; display:flex; align-items:center; justify-content:center; flex-shrink:0;
 }
 .help-btn:hover{ background:var(--ink); color:var(--chip-text); }
-.help-backdrop{
-  position:fixed; inset:0; z-index:900; background:rgba(0,0,0,0.15);
-  display:flex; align-items:flex-start; justify-content:center; padding-top:60px;
+.tour-overlay{ position:fixed; inset:0; z-index:1500; background:rgba(20,18,14,0.35); }
+.tour-highlight{
+  position:fixed; border:2.5px solid #a11414; border-radius:4px;
+  box-shadow: 0 0 0 4px rgba(161,20,20,0.28), 0 0 16px rgba(0,0,0,0.45);
+  pointer-events:none; z-index:1501;
 }
-.help-panel{
-  background:#FCFBF8; border:2px solid var(--ink); box-shadow:0 6px 20px rgba(0,0,0,0.35);
-  padding:16px; width:min(320px, 85vw); font-family:'Source Serif 4', serif; font-size:13px;
+.tour-callout{
+  position:fixed; background:#FCFBF8; border:2px solid var(--ink);
+  box-shadow:0 10px 28px rgba(0,0,0,0.45); padding:14px; z-index:1502;
+  font-family:'Source Serif 4', serif;
 }
-.help-panel-title{
-  font-family:'Oswald',sans-serif; font-weight:700; font-size:12px; text-transform:uppercase;
-  letter-spacing:0.04em; margin-bottom:8px;
+.tour-callout p{ margin:0 0 12px; font-size:13px; line-height:1.45; color:var(--ink); padding-right:16px; }
+.tour-arrow{ position:absolute; width:0; height:0; }
+.tour-arrow.up{
+  top:-9px; border-left:9px solid transparent; border-right:9px solid transparent; border-bottom:9px solid var(--ink);
 }
-.help-panel ul{ margin:0 0 12px; padding-left:18px; }
-.help-panel li{ margin-bottom:6px; line-height:1.4; }
+.tour-arrow.up::after{
+  content:""; position:absolute; top:2.5px; left:-7px; width:0; height:0;
+  border-left:7px solid transparent; border-right:7px solid transparent; border-bottom:7px solid #FCFBF8;
+}
+.tour-arrow.down{
+  bottom:-9px; border-left:9px solid transparent; border-right:9px solid transparent; border-top:9px solid var(--ink);
+}
+.tour-arrow.down::after{
+  content:""; position:absolute; bottom:2.5px; left:-7px; width:0; height:0;
+  border-left:7px solid transparent; border-right:7px solid transparent; border-top:7px solid #FCFBF8;
+}
+.tour-skip{
+  position:absolute; top:6px; right:8px; background:none; border:none; font-size:16px;
+  color:var(--caption); cursor:pointer; line-height:1; padding:2px;
+}
+.tour-skip:hover{ color:var(--ink); }
+.tour-actions{ display:flex; align-items:center; justify-content:space-between; }
+.tour-progress{ font-family:'Oswald',sans-serif; font-size:11px; color:var(--caption); }
+.tour-buttons{ display:flex; gap:6px; }
 
 /* Sheet view */
 .sheet-view{ padding:16px 18px 20px; min-height:100vh; }
@@ -403,7 +424,7 @@ textarea.locked{ resize:none; }
 .compact-cell{ flex:1; min-width:0; border:1.5px solid var(--ink); text-align:center; }
 .compact-chip{
   background:var(--ink); color:var(--chip-text); font-family:'Oswald',sans-serif;
-  font-weight:600; font-size:10px; letter-spacing:0.02em; padding:3px 0; width:100%; border:none;
+  font-weight:600; font-size:9px; letter-spacing:0.01em; line-height:1.25; padding:5px 3px; width:100%; border:none;
 }
 .compact-chip.rollable{
   cursor:pointer; position:relative; z-index:1; transition: box-shadow 0.15s ease, transform 0.15s ease;
@@ -427,6 +448,8 @@ textarea.locked{ resize:none; }
 /* Memorized Spells (Cleric + Magic-User) */
 .memorized-list{ display:flex; flex-direction:column; gap:4px; margin-bottom:6px; }
 .memorized-row{ display:flex; align-items:center; gap:6px; }
+.memorized-row.dragging{ opacity:0.4; }
+.memorized-head{ margin-bottom:4px; }
 .memorized-row input[type="checkbox"]{ width:15px; height:15px; accent-color:var(--ink); cursor:pointer; flex-shrink:0; }
 .mem-name{
   flex:1; min-width:0; border:1.5px solid var(--ink); background:var(--paper);
@@ -441,6 +464,16 @@ textarea.locked{ resize:none; }
   color:var(--hp-dead); font-size:15px; line-height:1; cursor:pointer; padding:0;
 }
 .row-remove:hover{ background:var(--hp-dead); color:#fff; }
+.add-spell-row{ margin-bottom:6px; }
+
+/* Drag handle - used by Memorized Spells and Spellbook chapter rows */
+.drag-handle{
+  flex-shrink:0; width:16px; height:22px; display:flex; align-items:center; justify-content:center;
+  cursor:grab; color:var(--caption); opacity:0.6;
+}
+.drag-handle:hover{ opacity:1; }
+.drag-handle svg circle{ fill:currentColor; }
+.mem-head-spacer{ flex-shrink:0; width:16px; display:inline-block; }
 
 /* Spellbook (Magic-User) - chaptered by level, collapsible */
 .spellbook-wrap{ margin-top:14px; }
@@ -453,12 +486,14 @@ textarea.locked{ resize:none; }
 .chapter-count{ opacity:0.7; font-weight:500; text-transform:none; letter-spacing:0; }
 .chapter-body{ padding:8px 10px; display:flex; flex-direction:column; gap:5px; }
 .chapter-row{ display:flex; align-items:center; gap:6px; }
+.chapter-row.dragging{ opacity:0.4; }
 .chapter-row input{
   flex:1; min-width:0; border:1.5px solid var(--ink); background:var(--paper);
   font-family:'Source Serif 4', serif; font-size:13px; padding:5px 7px; color:var(--ink);
 }
 
 /* Spell reference list (read-only, toggleable) */
+.spell-reference-toggle-row{ margin-top:10px; }
 .spell-reference{ display:flex; flex-wrap:wrap; gap:0 16px; margin-top:6px; }
 .spell-reference-level{ flex:0 0 calc(50% - 8px); min-width:0; margin-bottom:10px; }
 .spell-reference-level-label{

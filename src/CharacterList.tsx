@@ -1,5 +1,5 @@
 import type { Character } from "./types";
-import HelpButton from "./HelpButton";
+import HelpButton, { type TourStep } from "./HelpButton";
 
 interface Props {
   characters: Character[];
@@ -33,7 +33,7 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
       <div className="list-toolbar">
         <h2>Party</h2>
         <div className="list-toolbar-right">
-          {isGM && <HelpButton title="Party list help" lines={LIST_HELP} />}
+          <HelpButton title="Party list help" steps={LIST_HELP_STEPS(isGM)} />
           <button className="btn" onClick={onAdd}>+ New</button>
         </div>
       </div>
@@ -69,7 +69,9 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
                     {c.hidden ? "\u{1F441}\uFE0F\u200D\u{1F5E8}\uFE0F" : "\u{1F441}\uFE0F"}
                   </button>
                 )}
-                <button className="row-delete" data-tip="Remove from party" onClick={(e) => handleDelete(e, c)}>&times;</button>
+                {isGM && (
+                  <button className="row-delete" data-tip="Remove from party" onClick={(e) => handleDelete(e, c)}>&times;</button>
+                )}
               </div>
             </div>
           </div>
@@ -79,8 +81,15 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
   );
 }
 
-const LIST_HELP = [
-  "Click a character's row to open their sheet.",
-  "The \u2715 button removes a character from the party for good.",
-  "The eye button hides a character so only the GM can see them \u2014 players won't see the row at all.",
-];
+const LIST_HELP_STEPS = (isGM: boolean): TourStep[] => {
+  const steps: TourStep[] = [
+    { selector: ".char-row", text: "Click anywhere on a row to open that character's sheet." },
+  ];
+  if (isGM) {
+    steps.push(
+      { selector: ".row-hide", text: "Click the eye to hide a character from players entirely \u2014 they won't see the row at all." },
+      { selector: ".row-delete", text: "Removes a character from the party for good. Players can only delete their own PC, from inside the sheet." },
+    );
+  }
+  return steps;
+};

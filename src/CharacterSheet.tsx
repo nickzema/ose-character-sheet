@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Character, Weapon, MemorizedSpell, BasicInventory, DetailedInventory, WeightedItem, ArmourType } from "./types";
 import {
   abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS,
@@ -6,7 +6,7 @@ import {
 } from "./abilities";
 import { rollWeapon, rollNotation, termString } from "./dice";
 import { CLERIC_SPELLS, MAGIC_USER_SPELLS } from "./spells";
-import HelpButton from "./HelpButton";
+import HelpButton, { type TourStep } from "./HelpButton";
 
 interface RollState {
   label: string;
@@ -42,14 +42,19 @@ interface Props {
   onBack: () => void;
 }
 
-const SHEET_HELP = [
-  "Any bold chip with a shadow on hover \u2014 STR/INT/etc., saves, Mel/Mis, Thief Skills, Turn Undead, HP/Max \u2014 rolls dice when clicked.",
-  "HP rolls one Hit Die + CON. Max HP rolls one per level (capped at 9, +2/level after that) + CON. Neither roll changes the HP/Max box for you \u2014 type the result in yourself.",
-  "The die icon next to a weapon rolls its attack and damage together.",
-  "Click PC / NPC at the top left to switch which one this sheet is.",
-  "Click the color swatch to repaint the sheet.",
-  "GM only: the eye icon hides this character so players can't see them at all.",
-];
+const SHEET_HELP_STEPS = (isGM: boolean): TourStep[] => {
+  const steps: TourStep[] = [
+    { selector: '[data-tour="roll-chip"]', text: "Any bold chip with a shadow on hover \u2014 abilities, saves, Mel/Mis, Thief Skills, Turn Undead, HP/Max \u2014 rolls dice when clicked." },
+    { selector: '[data-tour="hp-roll"]', text: "HP rolls one Hit Die + CON. Max HP rolls one per level (capped at 9, +2/level after that) + CON. Neither roll changes the HP/Max box for you \u2014 type the result in yourself." },
+    { selector: '[data-tour="weapon-roll"]', text: "The die icon next to a weapon rolls its attack and damage together." },
+    { selector: '[data-tour="pc-toggle"]', text: "Click PC / NPC to switch which one this sheet is." },
+    { selector: '[data-tour="color-swatch"]', text: "Click the color swatch to repaint the sheet." },
+  ];
+  if (isGM) {
+    steps.push({ selector: '[data-tour="hide-toggle"]', text: "GM only: hides this character so players can't see them at all." });
+  }
+  return steps;
+};
 
 const SWATCHES: [string, string][] = [
   ["#FCFBF8", "White"],
@@ -62,15 +67,24 @@ const SWATCHES: [string, string][] = [
 ];
 
 const THIEF_SKILL_KEYS = ["CS", "TR", "HN", "HS", "MS", "OL", "PP"];
+const THIEF_SKILL_NAMES: Record<string, string> = {
+  CS: "Climb Sheer Surfaces",
+  TR: "Find/Remove Traps",
+  HN: "Hear Noise",
+  HS: "Hide in Shadows",
+  MS: "Move Silently",
+  OL: "Open Locks",
+  PP: "Pick Pockets",
+};
 
-function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollTitle, unit }: {
+function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollTitle, unit, tourId }: {
   chip: string; value: string | number; onChange?: (v: string) => void;
-  disabled?: boolean; narrow?: string; width?: string; onRoll?: () => void; rollTitle?: string; unit?: string;
+  disabled?: boolean; narrow?: string; width?: string; onRoll?: () => void; rollTitle?: string; unit?: string; tourId?: string;
 }) {
   return (
     <div className="chip-row" style={width ? { flex: `0 0 ${width}` } : undefined}>
       {onRoll ? (
-        <button className="chip rollable" onClick={onRoll} data-tip={rollTitle || "Click to roll"}>{chip}</button>
+        <button className="chip rollable" data-tour={tourId} onClick={onRoll} data-tip={rollTitle || "Click to roll"}>{chip}</button>
       ) : (
         <div className="chip">{chip}</div>
       )}
@@ -187,6 +201,16 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
 
   const [roll, setRoll] = useState<RollState | null>(null);
   const [modal, setModal] = useState<ModalState | null>(null);
+
+  // Auto-dismiss the roll result banner after a few seconds so it doesn't
+  // sit there forever waiting to be clicked away - but not while it's
+  // still showing the "Rolling..." placeholder, since that state gets
+  // replaced by the real result a moment later anyway.
+  useEffect(() => {
+    if (!roll || roll.detail === "Rolling...") return;
+    const timer = setTimeout(() => setRoll(null), 6000);
+    return () => clearTimeout(timer);
+  }, [roll]);
 
   const askYesNo = (message: string, yesLabel?: string, noLabel?: string) =>
     new Promise<boolean>((resolve) => {
@@ -360,10 +384,11 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
       <div className="sheet-topbar">
         <button className="btn text" onClick={onBack}>&larr; All characters</button>
         <div className="sheet-topbar-right">
-          <HelpButton title="How this sheet works" lines={SHEET_HELP} />
+          <HelpButton title="How this sheet works" steps={SHEET_HELP_STEPS(isGM)} />
           {isGM && (
             <button
               className={`btn text ${c.hidden ? "hidden-active" : ""}`}
+              data-tour="hide-toggle"
               data-tip={c.hidden ? "Visible only to you \u2014 click to reveal to players" : "Hide from players"}
               onClick={() => set("hidden", !c.hidden)}
             >
@@ -375,7 +400,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
       </div>
 
       <div className="color-picker">
-        <button className="color-current" style={{ background: c.color }} onClick={() => setColorOpen((o) => !o)} disabled={!canEdit} />
+        <button className="color-current" data-tour="color-swatch" style={{ background: c.color }} onClick={() => setColorOpen((o) => !o)} disabled={!canEdit} />
         {!colorOpen && (
           <span className="color-label" onClick={() => canEdit && setColorOpen(true)}>Sheet Color</span>
         )}
@@ -396,7 +421,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
 
           <div className="name-row">
             <div className="chip-row">
-              <button className="chip chip-toggle" disabled={!canEdit}
+              <button className="chip chip-toggle" disabled={!canEdit} data-tour="pc-toggle"
                 data-tip="Click to toggle PC / NPC"
                 onClick={() => set("type", c.type === "PC" ? "NPC" : "PC")}>{c.type}</button>
               <div className="box"><input value={c.name} disabled={!canEdit} placeholder="Character name" onChange={(e) => set("name", e.target.value)} /></div>
@@ -420,7 +445,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             <div>
               <h3>Ability Scores</h3>
               <Caption>Roll under or equal on 1d20</Caption>
-              <ChipRow chip="STR" value={c.abilities.str} narrow={fmtMod(strMod)} disabled={!canEdit} onChange={(v) => setAbility("str", Number(v) || 0)} onRoll={() => rollAbility("STR", c.abilities.str)} rollTitle="Roll STR check (1d20 vs score)" />
+              <ChipRow chip="STR" value={c.abilities.str} narrow={fmtMod(strMod)} disabled={!canEdit} onChange={(v) => setAbility("str", Number(v) || 0)} onRoll={() => rollAbility("STR", c.abilities.str)} rollTitle="Roll STR check (1d20 vs score)" tourId="roll-chip" />
               <Caption>Melee, Open doors {strOpenDoors(c.abilities.str)}</Caption>
               <ChipRow chip="INT" value={c.abilities.int} narrow={fmtMod(intMod)} disabled={!canEdit} onChange={(v) => setAbility("int", Number(v) || 0)} onRoll={() => rollAbility("INT", c.abilities.int)} rollTitle="Roll INT check (1d20 vs score)" />
               <Caption>Languages, Literacy</Caption>
@@ -454,7 +479,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
           <div>
             <h3>Combat</h3>
             <Row2>
-              <ChipRow chip="HP" value={c.hpCurrent} disabled={!canEdit} onChange={(v) => set("hpCurrent", Number(v) || 0)} onRoll={rollHP} rollTitle="Roll 1 Hit Die + CON (doesn't change this box)" />
+              <ChipRow chip="HP" value={c.hpCurrent} disabled={!canEdit} onChange={(v) => set("hpCurrent", Number(v) || 0)} onRoll={rollHP} rollTitle="Roll 1 Hit Die + CON (doesn't change this box)" tourId="hp-roll" />
               <ChipRow chip="Max" value={c.hpMax} disabled={!canEdit} onChange={(v) => set("hpMax", Number(v) || 0)} onRoll={rollMaxHP} rollTitle="Roll all Hit Dice for your level + CON (doesn't change this box)" />
             </Row2>
             <Row2>
@@ -493,7 +518,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
                   data-tip="Toggle melee/missile" onClick={() => updateWeapon(i, { ranged: !w.ranged })}>
                   {w.ranged ? "MIS" : "MEL"}
                 </button>
-                <button className="roll-btn" data-tip="Roll attack + damage" onClick={() => doRoll(w)}>&#127922;</button>
+                <button className="roll-btn" data-tour={i === 0 ? "weapon-roll" : undefined} data-tip="Roll attack + damage" onClick={() => doRoll(w)}>&#127922;</button>
               </div>
             ))}
             {canEdit && <button className="btn text" onClick={addWeaponRow}>+ Weapon</button>}
@@ -663,15 +688,6 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
     onChange({ ...c, itemBasedInventory: { ...c.itemBasedInventory, packed: arr } });
   };
 
-  // Ladder rows: 20 total, labels at rows 8 / 15 / 17 / 19 (0-indexed 7/14/16/18)
-  const ladderLabel = (i: number) => {
-    if (i === 7) return "120' (40')";
-    if (i === 14) return "90' (30')";
-    if (i === 16) return "60' (20')";
-    if (i === 18) return "30' (10')";
-    return "";
-  };
-
   const detailedBoxes: { key: keyof DetailedInventory; title: string; placeholder: string }[] = [
     { key: "equipment", title: "Equipment", placeholder: "Adventuring Gear" },
     { key: "weaponsArmour", title: "Weapons & Armour", placeholder: "Weapon" },
@@ -785,51 +801,55 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
                 <td className="mv-header">Base<br />Mv. Rate</td>
                 <td><h3>Packed Items</h3></td>
               </tr>
-              <tr>
-                <td rowSpan={6} className="unenc-cell">
-                  <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement).</Caption>
-                  <textarea rows={3} className="locked" value={c.itemBasedInventory.unencumbering} disabled={!canEdit} onChange={(e) => setUnenc(e.target.value)} />
-                </td>
-                <td rowSpan={8} className="ladder-cell first-zone">120' (40')</td>
-                <td className="packed-cell"><input value={c.itemBasedInventory.packed[0]} disabled={!canEdit} onChange={(e) => setPacked(0, e.target.value)} /><span className="str-tag">{strTags[0]}</span></td>
-              </tr>
-              {strTags.slice(1).map((tag, idx) => (
-                <tr key={tag}>
-                  <td className="packed-cell">
-                    <input value={c.itemBasedInventory.packed[idx + 1]} disabled={!canEdit} onChange={(e) => setPacked(idx + 1, e.target.value)} />
-                    <span className="str-tag">{tag}</span>
-                  </td>
-                </tr>
-              ))}
-              <tr>
-                <td className="equip-cell">
-                  <h3>Equipped Items</h3>
-                  <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
-                </td>
-                <td className="packed-cell"><input value={c.itemBasedInventory.packed[6]} disabled={!canEdit} onChange={(e) => setPacked(6, e.target.value)} /></td>
-              </tr>
-              {c.itemBasedInventory.equipped.map((val, i) => {
-                const packedIdx = 7 + i; // rows 8-13 continue the packed list alongside equipped lines
-                const showLadder = packedIdx === 8; // 90' zone starts here (0-indexed 8 = row 9)
+              {/*
+                20 packed-item rows total (matches itemBasedInventory.packed's fixed length):
+                - rows 0-5: share the Unencumbering box (rowSpan 6) on the left, STR-tagged on the right
+                - row 6: the "Equipped Items" heading + caption
+                - rows 7-12: the 6 equipped-item lines (matches itemBasedInventory.equipped's length)
+                - rows 13-19: packed items only, nothing in the left column
+                The movement-rate column spans, left to right: 120'(40') across rows 0-7 (8 rows),
+                90'(30') across rows 8-14 (7 rows), 60'(20') across rows 15-16 (2 rows), and
+                30'(10') across rows 17-19 (3 rows) - 8+7+2+3 = 20, so every row is accounted for
+                and no rowSpan ever reaches past a row that doesn't exist.
+              */}
+              {Array.from({ length: 20 }).map((_, row) => {
+                const isEquippedHeaderRow = row === 6;
+                const isEquippedInputRow = row >= 7 && row <= 12;
+                const equippedIdx = row - 7;
+                const isStrRow = row < 6;
+
+                let ladderCell: ReactNode = null;
+                if (row === 0) ladderCell = <td rowSpan={8} className="ladder-cell first-zone">120' (40')</td>;
+                else if (row === 8) ladderCell = <td rowSpan={7} className="ladder-cell">90' (30')</td>;
+                else if (row === 15) ladderCell = <td rowSpan={2} className="ladder-cell">60' (20')</td>;
+                else if (row === 17) ladderCell = <td rowSpan={3} className="ladder-cell">30' (10')</td>;
+
                 return (
-                  <tr key={i}>
-                    <td className="equip-cell">
-                      <input className="equip-input" value={val} disabled={!canEdit} onChange={(e) => setEquipped(i, e.target.value)} />
+                  <tr key={row}>
+                    {row === 0 && (
+                      <td rowSpan={6} className="unenc-cell">
+                        <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement).</Caption>
+                        <textarea rows={3} className="locked" value={c.itemBasedInventory.unencumbering} disabled={!canEdit} onChange={(e) => setUnenc(e.target.value)} />
+                      </td>
+                    )}
+                    {isEquippedHeaderRow && (
+                      <td className="equip-cell">
+                        <h3>Equipped Items</h3>
+                        <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
+                      </td>
+                    )}
+                    {isEquippedInputRow && (
+                      <td className="equip-cell">
+                        <input className="equip-input" value={c.itemBasedInventory.equipped[equippedIdx]} disabled={!canEdit}
+                          onChange={(e) => setEquipped(equippedIdx, e.target.value)} />
+                      </td>
+                    )}
+                    {row > 12 && <td className="equip-cell"></td>}
+                    {ladderCell}
+                    <td className="packed-cell">
+                      <input value={c.itemBasedInventory.packed[row]} disabled={!canEdit} onChange={(e) => setPacked(row, e.target.value)} />
+                      {isStrRow && <span className="str-tag">{strTags[row]}</span>}
                     </td>
-                    {showLadder && <td rowSpan={7} className="ladder-cell">90' (30')</td>}
-                    <td className="packed-cell"><input value={c.itemBasedInventory.packed[packedIdx]} disabled={!canEdit} onChange={(e) => setPacked(packedIdx, e.target.value)} /></td>
-                  </tr>
-                );
-              })}
-              {Array.from({ length: 20 - 15 }).map((_, i) => {
-                const packedIdx = 15 + i;
-                const label = ladderLabel(packedIdx);
-                const needsSpan = packedIdx === 16 || packedIdx === 18;
-                return (
-                  <tr key={packedIdx}>
-                    <td className="equip-cell"></td>
-                    {needsSpan && <td rowSpan={2} className="ladder-cell">{label}</td>}
-                    <td className="packed-cell"><input value={c.itemBasedInventory.packed[packedIdx]} disabled={!canEdit} onChange={(e) => setPacked(packedIdx, e.target.value)} /></td>
                   </tr>
                 );
               })}
@@ -880,11 +900,10 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, onRollThiefSkil
       {showThief && (
         <div className="feature-block show">
           <h4>Thief Skills &mdash; Level {c.level}</h4>
-          <Caption>CS Climb Sheer Surfaces &middot; TR Find/Remove Traps &middot; HN Hear Noise &middot; HS Hide in Shadows &middot; MS Move Silently &middot; OL Open Locks &middot; PP Pick Pockets</Caption>
           <div className="compact-row">
             {THIEF_SKILL_KEYS.map((k) => (
               <div className="compact-cell" key={k}>
-                <button className="compact-chip rollable" onClick={() => onRollThiefSkill(k, thiefValues[k])} data-tip="Click to roll">{k}</button>
+                <button className="compact-chip rollable" onClick={() => onRollThiefSkill(k, thiefValues[k])} data-tip="Click to roll">{THIEF_SKILL_NAMES[k]}</button>
                 <div className="compact-val">{thiefValues[k]}</div>
               </div>
             ))}
@@ -892,9 +911,16 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, onRollThiefSkil
           <button className="table-toggle" onClick={() => setShowThiefTable((s) => !s)}>
             {showThiefTable ? "\u25be Hide" : "\u25b8 Show"} full Thief Skills table
           </button>
-          {showThiefTable && <ThiefTable currentLevel={c.level} />}
+          {showThiefTable && (
+            <>
+              <Caption>CS Climb Sheer Surfaces &middot; TR Find/Remove Traps &middot; HN Hear Noise &middot; HS Hide in Shadows &middot; MS Move Silently &middot; OL Open Locks &middot; PP Pick Pockets</Caption>
+              <ThiefTable currentLevel={c.level} />
+            </>
+          )}
         </div>
       )}
+
+      {showSpells && <SpellsSection character={c} canEdit={canEdit} onChange={onChange} />}
 
       {showTurnUndead && (
         <div className="feature-block show">
@@ -914,9 +940,22 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, onRollThiefSkil
           {showTurnTable && <TurnUndeadTable currentLevel={c.level} />}
         </div>
       )}
-
-      {showSpells && <SpellsSection character={c} canEdit={canEdit} onChange={onChange} />}
     </div>
+  );
+}
+
+function reorder<T>(list: T[], from: number, to: number): T[] {
+  const copy = [...list];
+  const [item] = copy.splice(from, 1);
+  copy.splice(to, 0, item);
+  return copy;
+}
+
+function DragHandle() {
+  return (
+    <span className="drag-handle" data-tip="Drag to reorder">
+      <svg viewBox="0 0 10 16" width="10" height="16"><circle cx="2.5" cy="2.5" r="1.4" /><circle cx="7.5" cy="2.5" r="1.4" /><circle cx="2.5" cy="8" r="1.4" /><circle cx="7.5" cy="8" r="1.4" /><circle cx="2.5" cy="13.5" r="1.4" /><circle cx="7.5" cy="13.5" r="1.4" /></svg>
+    </span>
   );
 }
 
@@ -924,6 +963,7 @@ function SpellsSection({ character: c, canEdit, onChange }: {
   character: Character; canEdit: boolean; onChange: (c: Character) => void;
 }) {
   const [showReference, setShowReference] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const isMU = c.classFeatures.magicUser;
   const className = isMU ? "Magic-User" : "Cleric";
   const referenceList = isMU ? MAGIC_USER_SPELLS : CLERIC_SPELLS;
@@ -933,6 +973,11 @@ function SpellsSection({ character: c, canEdit, onChange }: {
     onChange({ ...c, memorizedSpells: c.memorizedSpells.map((s, idx) => (idx === i ? { ...s, ...patch } : s)) });
   const removeMemorized = (i: number) =>
     onChange({ ...c, memorizedSpells: c.memorizedSpells.filter((_, idx) => idx !== i) });
+  const dropMemorized = (i: number) => {
+    if (dragIndex === null || dragIndex === i) return;
+    onChange({ ...c, memorizedSpells: reorder(c.memorizedSpells, dragIndex, i) });
+    setDragIndex(null);
+  };
 
   const unlockNextLevel = () => onChange({ ...c, spellbookUnlockedLevels: Math.min(6, c.spellbookUnlockedLevels + 1) });
   const updateChapter = (levelIdx: number, spells: string[]) =>
@@ -941,10 +986,25 @@ function SpellsSection({ character: c, canEdit, onChange }: {
   return (
     <div className="feature-block show">
       <h4>Memorized Spells</h4>
-      <Caption>Add each spell you have memorized right now &mdash; memorize the same spell twice to cast it twice. Check it off once it's cast.</Caption>
+      <Caption>Add each spell you have memorized right now &mdash; memorize the same spell twice to cast it twice. Check it off once it's cast. Drag the handle to reorder.</Caption>
+      {c.memorizedSpells.length > 0 && (
+        <div className="memorized-row memorized-head">
+          <span className="mem-head-spacer" />
+          <span className="caption" style={{ margin: 0 }}>Cast</span>
+          <span className="caption" style={{ margin: 0, flex: 1 }}>Spell</span>
+          <span className="caption" style={{ margin: 0, width: 56, textAlign: "center" }}>Level</span>
+          <span className="mem-head-spacer" />
+        </div>
+      )}
       <div className="memorized-list">
         {c.memorizedSpells.map((sp, i) => (
-          <div className="memorized-row" key={i}>
+          <div className={`memorized-row ${dragIndex === i ? "dragging" : ""}`} key={i}
+            onDragOver={(e) => canEdit && e.preventDefault()} onDrop={() => canEdit && dropMemorized(i)}>
+            {canEdit ? (
+              <span draggable onDragStart={() => setDragIndex(i)} onDragEnd={() => setDragIndex(null)}>
+                <DragHandle />
+              </span>
+            ) : <span className="mem-head-spacer" />}
             <input type="checkbox" checked={sp.used} disabled={!canEdit} data-tip="Cast today"
               onChange={(e) => updateMemorized(i, { used: e.target.checked })} />
             <input className="mem-name" placeholder="Spell name" value={sp.name} disabled={!canEdit}
@@ -957,12 +1017,16 @@ function SpellsSection({ character: c, canEdit, onChange }: {
           </div>
         ))}
       </div>
-      {canEdit && <button className="btn text" onClick={addMemorized}>+ Spell</button>}
+      {canEdit && (
+        <div className="add-spell-row">
+          <button className="btn text" onClick={addMemorized}>+ Spell</button>
+        </div>
+      )}
 
       {isMU && (
         <div className="spellbook-wrap">
           <h4>Spellbook</h4>
-          <Caption>Spells you've learned, chaptered by level. Unlock the next chapter as you gain access to higher-level spells.</Caption>
+          <Caption>Spells you've learned, chaptered by level. Unlock the next chapter as you gain access to higher-level spells. Drag to reorder within a level.</Caption>
           {Array.from({ length: c.spellbookUnlockedLevels }).map((_, li) => (
             <SpellbookChapter key={li} level={li + 1} spells={c.spellbook[li] ?? []} canEdit={canEdit}
               onChange={(spells) => updateChapter(li, spells)} />
@@ -973,9 +1037,11 @@ function SpellsSection({ character: c, canEdit, onChange }: {
         </div>
       )}
 
-      <button className="table-toggle" onClick={() => setShowReference((s) => !s)}>
-        {showReference ? "\u25be Hide" : "\u25b8 Show"} full {className} Spell List
-      </button>
+      <div className="spell-reference-toggle-row">
+        <button className="table-toggle" onClick={() => setShowReference((s) => !s)}>
+          {showReference ? "\u25be Hide" : "\u25b8 Show"} full {className} Spell List
+        </button>
+      </div>
       {showReference && <SpellReferenceList list={referenceList} />}
     </div>
   );
@@ -985,9 +1051,15 @@ function SpellbookChapter({ level, spells, canEdit, onChange }: {
   level: number; spells: string[]; canEdit: boolean; onChange: (spells: string[]) => void;
 }) {
   const [open, setOpen] = useState(true);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const addSpell = () => onChange([...spells, ""]);
   const updateSpell = (i: number, name: string) => onChange(spells.map((s, idx) => (idx === i ? name : s)));
   const removeSpell = (i: number) => onChange(spells.filter((_, idx) => idx !== i));
+  const dropSpell = (i: number) => {
+    if (dragIndex === null || dragIndex === i) return;
+    onChange(reorder(spells, dragIndex, i));
+    setDragIndex(null);
+  };
   const filledCount = spells.filter((s) => s.trim()).length;
 
   return (
@@ -998,7 +1070,13 @@ function SpellbookChapter({ level, spells, canEdit, onChange }: {
       {open && (
         <div className="chapter-body">
           {spells.map((name, i) => (
-            <div className="chapter-row" key={i}>
+            <div className={`chapter-row ${dragIndex === i ? "dragging" : ""}`} key={i}
+              onDragOver={(e) => canEdit && e.preventDefault()} onDrop={() => canEdit && dropSpell(i)}>
+              {canEdit ? (
+                <span draggable onDragStart={() => setDragIndex(i)} onDragEnd={() => setDragIndex(null)}>
+                  <DragHandle />
+                </span>
+              ) : <span className="mem-head-spacer" />}
               <input value={name} placeholder="Spell name" disabled={!canEdit} onChange={(e) => updateSpell(i, e.target.value)} />
               {canEdit && <button className="row-remove" data-tip="Remove" onClick={() => removeSpell(i)}>&times;</button>}
             </div>
@@ -1024,6 +1102,7 @@ function SpellReferenceList({ list }: { list: string[][] }) {
     </div>
   );
 }
+
 
 function ThiefTable({ currentLevel }: { currentLevel?: number }) {
   const rows = [
