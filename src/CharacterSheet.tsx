@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Character, Weapon, MemorizedSpell, BasicInventory, DetailedInventory, WeightedItem, ArmourType } from "./types";
 import {
   abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS,
@@ -44,11 +44,27 @@ interface Props {
 
 const SHEET_HELP_STEPS = (isGM: boolean): TourStep[] => {
   const steps: TourStep[] = [
-    { selector: '[data-tour="roll-chip"]', text: "Any bold chip with a shadow on hover \u2014 abilities, saves, Mel/Mis, Thief Skills, Turn Undead, HP/Max \u2014 rolls dice when clicked." },
-    { selector: '[data-tour="hp-roll"]', text: "HP rolls one Hit Die + CON. Max HP rolls one per level (capped at 9, +2/level after that) + CON. Neither roll changes the HP/Max box for you \u2014 type the result in yourself." },
-    { selector: '[data-tour="weapon-roll"]', text: "The die icon next to a weapon rolls its attack and damage together." },
-    { selector: '[data-tour="pc-toggle"]', text: "Click PC / NPC to switch which one this sheet is." },
-    { selector: '[data-tour="color-swatch"]', text: "Click the color swatch to repaint the sheet." },
+    { text: "Right-click any token and assign it to this Character to connect the Character's portrait, HP, & AC." },
+    { selector: '[data-tour="color-swatch"]', text: "Select your preferred sheet color." },
+    { selector: '[data-tour="pc-toggle"]', text: "Click this to toggle between PC and NPC." },
+    { selector: '[data-tour="roll-chip"]', text: "Click any of your Abilities to perform a roll-under Ability Check." },
+    { selector: '[data-tour="save-chip"]', text: "Click any of your Saves to perform a roll-over Saving Throw." },
+    { selector: '[data-tour="encounters-zone"]', text: "Select any of these to roll encounter checks for initiative, reactions, hiring, and loyalty." },
+    { selector: '[data-tour="exploration-zone"]', text: "Select any of these to perform x-in-6 chance checks." },
+    { selector: '[data-tour="hp-roll"]', text: "Select this to roll a single Hit Die." },
+    { selector: '[data-tour="max-roll"]', text: "Select this to roll all of your Hit Dice at once." },
+    { selector: '[data-tour="mel-roll"]', text: "Select this to roll a straight Melee Attack Check." },
+    { selector: '[data-tour="mis-roll"]', text: "Select this to roll a straight Missile Attack Check." },
+    { selector: '[data-tour="weapons-heading"]', text: "Add each of your carried weapons below." },
+    { selector: '[data-tour="weapon-dmg"]', text: "Input the damage die." },
+    { selector: '[data-tour="weapon-type"]', text: "Toggle between Melee and Missile weapon type." },
+    { selector: '[data-tour="weapon-roll"]', text: "Click to roll your attack and damage for this weapon." },
+    { selector: '[data-tour="movement-zone"]', text: "You can input your Movement Speed manually - however all Inventory systems, with the exception of Item-Based, will update your Movement Speed for you automatically." },
+    { selector: '.inv-toggle', text: "Select which type of Encumbrance system you'll use for this Character. Basic: quick freeform lists, movement set purely by armour worn and treasure. Basic+: the same armour-driven movement as Basic, with organized weighted lists instead of free text. Detailed: tracks exact coin-weight to calculate movement precisely. Item-Based: counts equipped and packed items instead of weight, for a simpler at-the-table count." },
+    { selector: '.class-features', text: "Select any features related to your Character's class." },
+    { selector: '[data-tour="xp-roll"]', text: "Enter your total Experience Points." },
+    { selector: '[data-tour="next-roll"]', text: "Enter the number of Experience Points needed to reach the next Level." },
+    { selector: '[data-tour="percent-roll"]', text: "Enter the Experience Points percentage boost based on your Character's statistics." },
   ];
   if (isGM) {
     steps.push({ selector: '[data-tour="hide-toggle"]', text: "GM only: hides this character so players can't see them at all." });
@@ -86,7 +102,7 @@ function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollT
       {onRoll ? (
         <button className="chip rollable" data-tour={tourId} onClick={onRoll} data-tip={rollTitle || "Click to roll"}>{chip}</button>
       ) : (
-        <div className="chip">{chip}</div>
+        <div className="chip" data-tour={tourId}>{chip}</div>
       )}
       <div className="box">
         <input value={value} disabled={disabled} onChange={(e) => onChange?.(e.target.value)} />
@@ -182,6 +198,46 @@ function Row2({ children }: { children: React.ReactNode }) {
 
 function Caption({ children }: { children: React.ReactNode }) {
   return <p className="caption">{children}</p>;
+}
+
+// The textarea here is sized in JS, not CSS, on purpose: it sits inside a
+// rowSpan'd table cell whose real height comes from Packed's 10 rows next
+// to it, and percentage/flex heights don't reliably resolve against a
+// rowSpan'd cell's actual rendered height across browsers (confirmed by
+// testing - the standard "height:1px" trick for this doesn't hold up
+// here). Measuring the cell's real clientHeight directly sidesteps that
+// entirely and re-measures via ResizeObserver if anything changes it.
+function UnencumberingCell({ value, canEdit, onChange }: { value: string; canEdit: boolean; onChange: (v: string) => void }) {
+  const cellRef = useRef<HTMLTableCellElement>(null);
+  const otherRef = useRef<HTMLDivElement>(null);
+  const [taHeight, setTaHeight] = useState(80);
+
+  useEffect(() => {
+    const cell = cellRef.current;
+    const other = otherRef.current;
+    if (!cell || !other) return;
+    const recalc = () => setTaHeight(Math.max(cell.clientHeight - other.scrollHeight - 4, 60));
+    recalc();
+    const ro = new ResizeObserver(recalc);
+    ro.observe(cell);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <td rowSpan={10} className="unenc-cell" ref={cellRef}>
+      <div className="unenc-cell-inner">
+        <textarea
+          style={{ height: taHeight }}
+          value={value} disabled={!canEdit} onChange={(e) => onChange(e.target.value)}
+        />
+        <div ref={otherRef}>
+          <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement). Doesn't affect movement.</Caption>
+          <h4>Equipped Items</h4>
+          <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
+        </div>
+      </div>
+    </td>
+  );
 }
 
 export default function CharacterSheet({ character: c, canEdit, isGM, onChange, onDelete, onBack }: Props) {
@@ -372,7 +428,8 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
     setRoll({ label: weapon.name || "Weapon", detail: "Rolling...", outcome: "neutral" });
     const hitAbilityMod = weapon.ranged ? dexMod : strMod;
     const dmgMod = weapon.ranged ? 0 : strMod; // only STR/melee adds to damage - never the attack bonus or DEX
-    const { parts, usedFallback, fallbackReason } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, hitAbilityMod, dmgMod);
+    const magicBonus = parseInt(weapon.bonus, 10) || 0; // magic weapon bonus applies to both attack and damage
+    const { parts, usedFallback, fallbackReason } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, hitAbilityMod, dmgMod, magicBonus);
     setRoll({
       label: weapon.name || "Weapon", parts, outcome: "neutral",
       fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined,
@@ -383,7 +440,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
     const weapons = c.weapons.map((w, idx) => (idx === i ? { ...w, ...patch } : w));
     set("weapons", weapons);
   };
-  const addWeaponRow = () => set("weapons", [...c.weapons, { name: "", damage: "", ranged: false }]);
+  const addWeaponRow = () => set("weapons", [...c.weapons, { name: "", damage: "", bonus: "", ranged: false }]);
 
   const strTags = ["STR 18+", "STR 16+", "STR 13+", "STR 9+", "STR 6+", "STR 4+"];
 
@@ -469,7 +526,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             <div>
               <h3>Saving Throws</h3>
               <Caption>Roll over or equal on 1d20</Caption>
-              <ChipRow chip="D" value={c.saves.death} disabled={!canEdit} onChange={(v) => setSave("death", Number(v) || 0)} onRoll={() => rollSave("Death", c.saves.death, false, true)} rollTitle="Roll Death save" />
+              <ChipRow chip="D" value={c.saves.death} disabled={!canEdit} onChange={(v) => setSave("death", Number(v) || 0)} onRoll={() => rollSave("Death", c.saves.death, false, true)} rollTitle="Roll Death save" tourId="save-chip" />
               <Caption>Death, poison</Caption>
               <ChipRow chip="W" value={c.saves.wands} disabled={!canEdit} onChange={(v) => setSave("wands", Number(v) || 0)} onRoll={() => rollSave("Wands", c.saves.wands, true, false)} rollTitle="Roll Wands save (always vs. magic)" />
               <Caption>Magic wands</Caption>
@@ -488,7 +545,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             <h3>Combat</h3>
             <Row2>
               <ChipRow chip="HP" value={c.hpCurrent} disabled={!canEdit} onChange={(v) => set("hpCurrent", Number(v) || 0)} onRoll={rollHP} rollTitle="Roll 1 Hit Die + CON (doesn't change this box)" tourId="hp-roll" />
-              <ChipRow chip="Max" value={c.hpMax} disabled={!canEdit} onChange={(v) => set("hpMax", Number(v) || 0)} onRoll={rollMaxHP} rollTitle="Roll all Hit Dice for your level + CON (doesn't change this box)" />
+              <ChipRow chip="Max" value={c.hpMax} disabled={!canEdit} onChange={(v) => set("hpMax", Number(v) || 0)} onRoll={rollMaxHP} rollTitle="Roll all Hit Dice for your level + CON (doesn't change this box)" tourId="max-roll" />
             </Row2>
             <Row2>
               <ChipRow chip="AC" value={c.ac} disabled={!canEdit} onChange={(v) => set("ac", Number(v) || 0)} />
@@ -499,8 +556,8 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
               <Caption>Attack Bonus</Caption>
             </Row2>
             <Row2>
-              <ChipRow chip="Mel" value={fmtMod(strMod)} disabled onRoll={() => rollMelMis("Melee Attack", strMod)} rollTitle="Roll d20 + Att + STR" />
-              <ChipRow chip="Mis" value={fmtMod(dexMod)} disabled onRoll={() => rollMelMis("Missile Attack", dexMod)} rollTitle="Roll d20 + Att + DEX" />
+              <ChipRow chip="Mel" value={fmtMod(strMod)} disabled onRoll={() => rollMelMis("Melee Attack", strMod)} rollTitle="Roll d20 + Att + STR" tourId="mel-roll" />
+              <ChipRow chip="Mis" value={fmtMod(dexMod)} disabled onRoll={() => rollMelMis("Missile Attack", dexMod)} rollTitle="Roll d20 + Att + DEX" tourId="mis-roll" />
             </Row2>
             <Row2>
               <Caption>STR mod. to melee att./damage</Caption>
@@ -509,27 +566,30 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
           </div>
 
           <div>
-            <h3>Weapons</h3>
+            <h3 data-tour="weapons-heading">Weapons</h3>
             <div className="weapon-row weapon-head">
-              <span className="caption" style={{ margin: 0 }}>Weapon</span>
-              <span className="caption" style={{ margin: 0 }}>Damage</span>
-              <span className="caption" style={{ margin: 0, width: 44 }}></span>
-              <span className="caption" style={{ margin: 0, width: 30 }}></span>
+              <span className="caption" style={{ margin: 0, flex: 1 }}>Weapon</span>
+              <span className="caption" style={{ margin: 0, width: 56, textAlign: "center" }}>Damage</span>
+              <span className="caption" style={{ margin: 0, width: 40, textAlign: "center" }}>Bonus</span>
+              <span className="caption" style={{ margin: 0, width: 52 }}></span>
+              <span className="caption" style={{ margin: 0, width: 48 }}></span>
             </div>
             {c.weapons.map((w, i) => (
               <div className="weapon-row" key={i}>
-                <input className="wname" value={w.name} disabled={!canEdit}
+                <input className="wname" value={w.name} placeholder="Judgement (Warhammer)" disabled={!canEdit}
                   onChange={(e) => updateWeapon(i, { name: e.target.value })} />
-                <input className="wdmg" value={w.damage} disabled={!canEdit}
+                <input className="wdmg" value={w.damage} placeholder="1d6" disabled={!canEdit} data-tour={i === 0 ? "weapon-dmg" : undefined}
                   onChange={(e) => updateWeapon(i, { damage: e.target.value })} />
-                <button className={`weapon-type-btn ${w.ranged ? "ranged" : ""}`} disabled={!canEdit}
+                <input className="wbonus" value={w.bonus} placeholder="+0" disabled={!canEdit}
+                  onChange={(e) => updateWeapon(i, { bonus: e.target.value })} />
+                <button className={`weapon-type-btn ${w.ranged ? "ranged" : ""}`} disabled={!canEdit} data-tour={i === 0 ? "weapon-type" : undefined}
                   data-tip="Toggle melee/missile" onClick={() => updateWeapon(i, { ranged: !w.ranged })}>
                   {w.ranged ? "MIS" : "MEL"}
                 </button>
-                <button className="roll-btn" data-tour={i === 0 ? "weapon-roll" : undefined} data-tip="Roll attack + damage" onClick={() => doRoll(w)}>&#127922;</button>
+                <button className="roll-btn atk-btn" data-tour={i === 0 ? "weapon-roll" : undefined} data-tip="Roll attack + damage" onClick={() => doRoll(w)}>ATK</button>
               </div>
             ))}
-            {canEdit && <button className="btn text" onClick={addWeaponRow}>+ Weapon</button>}
+            {canEdit && <button className="btn text btn-add" onClick={addWeaponRow}>+ Weapon</button>}
           </div>
 
         </div>
@@ -565,7 +625,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             </div>
           )}
 
-          <div>
+          <div data-tour="encounters-zone">
             <h3>Encounters</h3>
             <Row2>
               <ChipRow chip="Init" value={fmtMod(dexMod)} disabled onRoll={rollInit} rollTitle="Roll 1d6 + DEX" />
@@ -579,7 +639,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             <Row2><Caption>Max Retainers</Caption><Caption>Retainer Loyalty</Caption></Row2>
           </div>
 
-          <div>
+          <div data-tour="exploration-zone">
             <h3>Exploration</h3>
             <Caption>(x-in-6)</Caption>
             <Row2>
@@ -594,7 +654,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             <Row2><Caption>Secret doors</Caption><Caption>Find traps</Caption></Row2>
           </div>
 
-          <div>
+          <div data-tour="movement-zone">
             <h3>Movement</h3>
             <Caption>Base mv. rate = 120, unless encumbered</Caption>
             <Row2>
@@ -636,9 +696,9 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
       </div>
 
       <div className="footer-xp">
-        <ChipRow chip="XP" value={c.xp} disabled={!canEdit} onChange={(v) => set("xp", Number(v) || 0)} />
-        <ChipRow chip="Next" value={c.xpNext} disabled={!canEdit} onChange={(v) => set("xpNext", Number(v) || 0)} />
-        <ChipRow chip="%" value={c.xpPercent} disabled={!canEdit} onChange={(v) => set("xpPercent", v)} />
+        <ChipRow chip="XP" value={c.xp} disabled={!canEdit} onChange={(v) => set("xp", Number(v) || 0)} tourId="xp-roll" />
+        <ChipRow chip="Next" value={c.xpNext} disabled={!canEdit} onChange={(v) => set("xpNext", Number(v) || 0)} tourId="next-roll" />
+        <ChipRow chip="%" value={c.xpPercent} disabled={!canEdit} onChange={(v) => set("xpPercent", v)} tourId="percent-roll" />
       </div>
 
       <div className="brand-footer">
@@ -657,6 +717,22 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
     onChange({ ...c, ...patch, baseMove: exploration, overlandMove: overland, encounterMove: encounter });
   };
 
+  // Every coin weighs 1cn regardless of denomination (OSE: "Coin (any
+  // type) - 1"), so the coin purse's contribution to weight is just the
+  // sum of how many coins are in it, full stop.
+  const coinWeight = c.coins.pp + c.coins.gp + c.coins.ep + c.coins.sp + c.coins.cp;
+  const setCoins = (k: "pp" | "gp" | "ep" | "sp" | "cp", v: number) => {
+    const coins = { ...c.coins, [k]: v };
+    if (c.inventoryMode === "detailed") {
+      const newCoinWeight = coins.pp + coins.gp + coins.ep + coins.sp + coins.cp;
+      const itemTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+        .reduce((sum, key) => sum + c.detailedInventory[key].reduce((s, it) => s + (it.weight || 0), 0), 0);
+      applyMovement(detailedSpeedForWeight(itemTotal + newCoinWeight), { coins });
+    } else {
+      onChange({ ...c, coins });
+    }
+  };
+
   const setBasic = (k: keyof BasicInventory, v: string | boolean) => {
     const basicInventory = { ...c.basicInventory, [k]: v };
     if (k === "armourType" || k === "carryingTreasure") {
@@ -669,14 +745,40 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
     }
   };
 
-  const detailedTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+  // Basic+: same armour-driven movement as Basic, but with Detailed's
+  // growable weighted-item lists instead of freeform text boxes. The
+  // weight these items (and coins) add up to is shown for reference only
+  // - it never drives movement, since Basic+ is still the Basic system.
+  const setBasicPlusArmour = (k: "armourType" | "carryingTreasure", v: string | boolean) => {
+    const basicPlusInventory = { ...c.basicPlusInventory, [k]: v };
+    const armourType = (k === "armourType" ? v : c.basicPlusInventory.armourType) as ArmourType;
+    const withTreasure = (k === "carryingTreasure" ? v : c.basicPlusInventory.carryingTreasure) as boolean;
+    const base = BASIC_MOVEMENT[armourType][withTreasure ? "with" : "without"];
+    applyMovement(base, { basicPlusInventory });
+  };
+  const basicPlusItemTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+    .reduce((sum, k) => sum + c.basicPlusInventory[k].reduce((s, item) => s + (item.weight || 0), 0), 0);
+  const basicPlusTotal = basicPlusItemTotal + coinWeight;
+  const setBasicPlusItem = (category: keyof DetailedInventory, i: number, patch: Partial<WeightedItem>) => {
+    const items = c.basicPlusInventory[category].map((it, idx) => (idx === i ? { ...it, ...patch } : it));
+    onChange({ ...c, basicPlusInventory: { ...c.basicPlusInventory, [category]: items } });
+  };
+  const addBasicPlusRow = (category: keyof DetailedInventory) => {
+    onChange({ ...c, basicPlusInventory: { ...c.basicPlusInventory, [category]: [...c.basicPlusInventory[category], { name: "", weight: 0 }] } });
+  };
+  const removeBasicPlusRow = (category: keyof DetailedInventory, i: number) => {
+    const items = c.basicPlusInventory[category].filter((_, idx) => idx !== i);
+    onChange({ ...c, basicPlusInventory: { ...c.basicPlusInventory, [category]: items } });
+  };
+
+  const detailedTotal = coinWeight + (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
     .reduce((sum, k) => sum + c.detailedInventory[k].reduce((s, item) => s + (item.weight || 0), 0), 0);
   const detailedSpeed = detailedSpeedForWeight(detailedTotal);
 
   const setDetailedItem = (category: keyof DetailedInventory, i: number, patch: Partial<WeightedItem>) => {
     const items = c.detailedInventory[category].map((it, idx) => (idx === i ? { ...it, ...patch } : it));
     const detailedInventory = { ...c.detailedInventory, [category]: items };
-    const newTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+    const newTotal = coinWeight + (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
       .reduce((sum, k) => sum + detailedInventory[k].reduce((s, it) => s + (it.weight || 0), 0), 0);
     applyMovement(detailedSpeedForWeight(newTotal), { detailedInventory });
   };
@@ -686,7 +788,7 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
   const removeDetailedRow = (category: keyof DetailedInventory, i: number) => {
     const items = c.detailedInventory[category].filter((_, idx) => idx !== i);
     const detailedInventory = { ...c.detailedInventory, [category]: items };
-    const newTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+    const newTotal = coinWeight + (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
       .reduce((sum, k) => sum + detailedInventory[k].reduce((s, it) => s + (it.weight || 0), 0), 0);
     applyMovement(detailedSpeedForWeight(newTotal), { detailedInventory });
   };
@@ -710,6 +812,17 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
     { key: "treasure", title: "Treasure", placeholder: "Gem, Jewelry, Potion..." },
   ];
 
+  const coinsRow = (
+    <div className="coins-mini-row">
+      {(["pp", "gp", "ep", "sp", "cp"] as const).map((k) => (
+        <div className="coins-mini-cell" key={k}>
+          <label>{k.toUpperCase()}</label>
+          <input type="number" value={c.coins[k]} disabled={!canEdit} onChange={(e) => setCoins(k, Number(e.target.value) || 0)} />
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="inventory-wrap">
       <div className="inventory-header">
@@ -717,6 +830,8 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
         <div className="inv-toggle">
           <button className={`inv-tab ${c.inventoryMode === "basic" ? "active" : ""}`} disabled={!canEdit}
             onClick={() => onChange({ ...c, inventoryMode: "basic" })}>Basic</button>
+          <button className={`inv-tab ${c.inventoryMode === "basic-plus" ? "active" : ""}`} disabled={!canEdit}
+            onClick={() => onChange({ ...c, inventoryMode: "basic-plus" })}>Basic+</button>
           <button className={`inv-tab ${c.inventoryMode === "detailed" ? "active" : ""}`} disabled={!canEdit}
             onClick={() => onChange({ ...c, inventoryMode: "detailed" })}>Detailed</button>
           <button className={`inv-tab ${c.inventoryMode === "item" ? "active" : ""}`} disabled={!canEdit}
@@ -747,14 +862,61 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
           </div>
         </div>
       )}
+      {c.inventoryMode === "basic-plus" && (
+        <div className="inventory-status-row">
+          <div className="armour-toggle">
+            {(["unarmoured", "light", "heavy"] as const).map((a) => (
+              <button key={a} className={`armour-btn ${c.basicPlusInventory.armourType === a ? "active" : ""}`}
+                disabled={!canEdit} onClick={() => setBasicPlusArmour("armourType", a)}>
+                {a.charAt(0).toUpperCase() + a.slice(1)}
+              </button>
+            ))}
+          </div>
+          <label className="treasure-check">
+            <input type="checkbox" checked={c.basicPlusInventory.carryingTreasure} disabled={!canEdit}
+              onChange={(e) => setBasicPlusArmour("carryingTreasure", e.target.checked)} />
+            With Treasure
+          </label>
+          <div className="weight-total">
+            <span className="weight-total-speed">
+              &#8594; {BASIC_MOVEMENT[c.basicPlusInventory.armourType][c.basicPlusInventory.carryingTreasure ? "with" : "without"]}'
+              ({Math.round(BASIC_MOVEMENT[c.basicPlusInventory.armourType][c.basicPlusInventory.carryingTreasure ? "with" : "without"] / 3)}')
+            </span>
+          </div>
+          <div className="weight-total">
+            <span className="weight-total-num">{basicPlusTotal} cn</span>
+            <span className="weight-total-speed">weight (reference only)</span>
+          </div>
+        </div>
+      )}
       {c.inventoryMode === "detailed" && (
         <div className="inventory-status-row">
           <div className={`weight-total ${detailedTotal > 1600 ? "overloaded" : ""}`}>
             <span className="weight-total-num">{detailedTotal} cn</span>
             <span className="weight-total-speed">{detailedTotal > 1600 ? "Can't move" : `\u2192 ${detailedSpeed}' (${Math.round(detailedSpeed / 3)}')`}</span>
           </div>
+          <table className="coin-ref-table">
+            <thead><tr><th>Coins</th><th>Rate</th></tr></thead>
+            <tbody>
+              {[
+                { max: 400, rate: "120' (40')" },
+                { max: 600, rate: "90' (30')" },
+                { max: 800, rate: "60' (20')" },
+                { max: 1600, rate: "30' (10')" },
+              ].map(({ max, rate }, i, arr) => {
+                const min = i === 0 ? 0 : arr[i - 1].max;
+                const isCurrent = detailedTotal > min && detailedTotal <= max;
+                return (
+                  <tr key={max} className={isCurrent ? "current" : ""}>
+                    <td>Up to {max}</td><td>{rate}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+      {(c.inventoryMode === "basic" || c.inventoryMode === "basic-plus" || c.inventoryMode === "detailed") && coinsRow}
 
       {c.inventoryMode === "basic" && (
         <>
@@ -780,6 +942,35 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
         </>
       )}
 
+      {c.inventoryMode === "basic-plus" && (
+        <>
+          <Caption>Movement is still set by armour worn and whether you're carrying treasure, same as Basic - these lists (and their weights) are for reference only and don't change your speed. Weight is optional; leave it at 0 if you don't want to bother with it.</Caption>
+          <div className="inv-grid">
+            {detailedBoxes.map(({ key, title, placeholder }) => (
+              <div className="inv-box" key={key}>
+                <h4>{title}</h4>
+                <div className="weighted-list">
+                  <div className="weighted-row weighted-head">
+                    <span className="caption" style={{ margin: 0 }}>Item</span>
+                    <span className="caption" style={{ margin: 0 }}>Wt (cn)</span>
+                  </div>
+                  {c.basicPlusInventory[key].map((item, i) => (
+                    <div className="weighted-row" key={i}>
+                      <input className="weighted-name" value={item.name} placeholder={placeholder} disabled={!canEdit}
+                        onChange={(e) => setBasicPlusItem(key, i, { name: e.target.value })} />
+                      <input className="weighted-weight" type="number" value={item.weight} disabled={!canEdit}
+                        onChange={(e) => setBasicPlusItem(key, i, { weight: Number(e.target.value) || 0 })} />
+                      {canEdit && <button className="weighted-remove" onClick={() => removeBasicPlusRow(key, i)}>&times;</button>}
+                    </div>
+                  ))}
+                  {canEdit && <button className="btn text btn-add" onClick={() => addBasicPlusRow(key)}>+ Item</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       {c.inventoryMode === "detailed" && (
         <div className="inv-grid">
           {detailedBoxes.map(({ key, title, placeholder }) => (
@@ -799,7 +990,7 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
                     {canEdit && <button className="weighted-remove" onClick={() => removeDetailedRow(key, i)}>&times;</button>}
                   </div>
                 ))}
-                {canEdit && <button className="btn text" onClick={() => addDetailedRow(key)}>+ Item</button>}
+                {canEdit && <button className="btn text btn-add" onClick={() => addDetailedRow(key)}>+ Item</button>}
               </div>
             </div>
           ))}
@@ -822,9 +1013,9 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
             <colgroup><col style={{ width: "38%" }} /><col style={{ width: 74 }} /><col /></colgroup>
             <tbody>
               <tr className="header-row">
-                <td><h3>Unencumbering Items</h3></td>
+                <td><h4>Unencumbering Items</h4></td>
                 <td className="mv-header">Base<br />Mv. Rate</td>
-                <td><h3>Packed Items</h3></td>
+                <td><h4>Packed Items</h4></td>
               </tr>
               {Array.from({ length: 19 }).map((_, row) => {
                 const isEquippedRow = row >= 10; // rows 11-19 (0-indexed 10-18)
@@ -839,14 +1030,7 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
                 return (
                   <tr key={row}>
                     {row === 0 && (
-                      <td rowSpan={10} className="unenc-cell">
-                        <div className="unenc-cell-inner">
-                          <textarea value={c.itemBasedInventory.unencumbering} disabled={!canEdit} onChange={(e) => setUnenc(e.target.value)} />
-                          <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement). Doesn't affect movement.</Caption>
-                          <h3>Equipped Items</h3>
-                          <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
-                        </div>
-                      </td>
+                      <UnencumberingCell value={c.itemBasedInventory.unencumbering} canEdit={canEdit} onChange={setUnenc} />
                     )}
                     {isEquippedRow && (
                       <td className="ib-input-cell">
@@ -866,6 +1050,7 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
           </table>
           <Caption>All other equipment, packed into sacks and backpacks. Retrieving a packed item in combat optionally takes one round.</Caption>
           <Caption>STR modifier (optional, honor system - not enforced here): a STR-tagged row can only be used if your STR meets that threshold.</Caption>
+          <Caption>Coins: {coinWeight} carried &mdash; occupies about {Math.ceil(coinWeight / 100) || 0} packed slot{Math.ceil(coinWeight / 100) === 1 ? "" : "s"} (100 coins/gems = 1 item; honor system, not tracked as its own row above).</Caption>
         </div>
       )}
     </div>
@@ -972,6 +1157,7 @@ function SpellsSection({ character: c, canEdit, onChange }: {
 }) {
   const [showReference, setShowReference] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
   const isMU = c.classFeatures.magicUser;
   const className = isMU ? "Magic-User" : "Cleric";
   const referenceList = isMU ? MAGIC_USER_SPELLS : CLERIC_SPELLS;
@@ -982,9 +1168,10 @@ function SpellsSection({ character: c, canEdit, onChange }: {
   const removeMemorized = (i: number) =>
     onChange({ ...c, memorizedSpells: c.memorizedSpells.filter((_, idx) => idx !== i) });
   const dropMemorized = (i: number) => {
-    if (dragIndex === null || dragIndex === i) return;
+    if (dragIndex === null || dragIndex === i) { setOverIndex(null); return; }
     onChange({ ...c, memorizedSpells: reorder(c.memorizedSpells, dragIndex, i) });
     setDragIndex(null);
+    setOverIndex(null);
   };
 
   const unlockNextLevel = () => onChange({ ...c, spellbookUnlockedLevels: Math.min(6, c.spellbookUnlockedLevels + 1) });
@@ -1006,10 +1193,12 @@ function SpellsSection({ character: c, canEdit, onChange }: {
       )}
       <div className="memorized-list">
         {c.memorizedSpells.map((sp, i) => (
-          <div className={`memorized-row ${dragIndex === i ? "dragging" : ""}`} key={i}
-            onDragOver={(e) => canEdit && e.preventDefault()} onDrop={() => canEdit && dropMemorized(i)}>
+          <div className={`memorized-row ${dragIndex === i ? "dragging" : ""} ${overIndex === i && dragIndex !== i ? "drag-over" : ""}`} key={i}
+            onDragOver={(e) => { if (!canEdit) return; e.preventDefault(); setOverIndex(i); }}
+            onDragLeave={() => setOverIndex((cur) => (cur === i ? null : cur))}
+            onDrop={() => canEdit && dropMemorized(i)}>
             {canEdit ? (
-              <span draggable onDragStart={() => setDragIndex(i)} onDragEnd={() => setDragIndex(null)}>
+              <span draggable onDragStart={() => setDragIndex(i)} onDragEnd={() => { setDragIndex(null); setOverIndex(null); }}>
                 <DragHandle />
               </span>
             ) : <span className="mem-head-spacer" />}
@@ -1027,7 +1216,7 @@ function SpellsSection({ character: c, canEdit, onChange }: {
       </div>
       {canEdit && (
         <div className="add-spell-row">
-          <button className="btn text" onClick={addMemorized}>+ Spell</button>
+          <button className="btn text btn-add" onClick={addMemorized}>+ Spell</button>
         </div>
       )}
 
@@ -1060,13 +1249,15 @@ function SpellbookChapter({ level, spells, canEdit, onChange }: {
 }) {
   const [open, setOpen] = useState(true);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
   const addSpell = () => onChange([...spells, ""]);
   const updateSpell = (i: number, name: string) => onChange(spells.map((s, idx) => (idx === i ? name : s)));
   const removeSpell = (i: number) => onChange(spells.filter((_, idx) => idx !== i));
   const dropSpell = (i: number) => {
-    if (dragIndex === null || dragIndex === i) return;
+    if (dragIndex === null || dragIndex === i) { setOverIndex(null); return; }
     onChange(reorder(spells, dragIndex, i));
     setDragIndex(null);
+    setOverIndex(null);
   };
   const filledCount = spells.filter((s) => s.trim()).length;
 
@@ -1078,10 +1269,12 @@ function SpellbookChapter({ level, spells, canEdit, onChange }: {
       {open && (
         <div className="chapter-body">
           {spells.map((name, i) => (
-            <div className={`chapter-row ${dragIndex === i ? "dragging" : ""}`} key={i}
-              onDragOver={(e) => canEdit && e.preventDefault()} onDrop={() => canEdit && dropSpell(i)}>
+            <div className={`chapter-row ${dragIndex === i ? "dragging" : ""} ${overIndex === i && dragIndex !== i ? "drag-over" : ""}`} key={i}
+              onDragOver={(e) => { if (!canEdit) return; e.preventDefault(); setOverIndex(i); }}
+              onDragLeave={() => setOverIndex((cur) => (cur === i ? null : cur))}
+              onDrop={() => canEdit && dropSpell(i)}>
               {canEdit ? (
-                <span draggable onDragStart={() => setDragIndex(i)} onDragEnd={() => setDragIndex(null)}>
+                <span draggable onDragStart={() => setDragIndex(i)} onDragEnd={() => { setDragIndex(null); setOverIndex(null); }}>
                   <DragHandle />
                 </span>
               ) : <span className="mem-head-spacer" />}
@@ -1089,7 +1282,7 @@ function SpellbookChapter({ level, spells, canEdit, onChange }: {
               {canEdit && <button className="row-remove" data-tip="Remove" onClick={() => removeSpell(i)}>&times;</button>}
             </div>
           ))}
-          {canEdit && <button className="btn text" onClick={addSpell}>+ Spell</button>}
+          {canEdit && <button className="btn text btn-add" onClick={addSpell}>+ Spell</button>}
         </div>
       )}
     </div>

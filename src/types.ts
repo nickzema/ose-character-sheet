@@ -18,6 +18,7 @@ export interface Saves {
 export interface Weapon {
   name: string;
   damage: string;
+  bonus: string; // magic weapon bonus, e.g. "+1" - applies to both attack and damage
   ranged: boolean; // false = melee (uses STR/Mel), true = missile (uses DEX/Mis)
 }
 
@@ -50,6 +51,15 @@ export interface DetailedInventory {
   treasure: WeightedItem[];
 }
 
+export interface BasicPlusInventory {
+  armourType: ArmourType;
+  carryingTreasure: boolean;
+  equipment: WeightedItem[];
+  weaponsArmour: WeightedItem[];
+  magicItems: WeightedItem[];
+  treasure: WeightedItem[];
+}
+
 export interface ItemBasedInventory {
   unencumbering: string;
   equipped: string[]; // fixed-length slot list
@@ -64,7 +74,7 @@ export interface Coins {
   cp: number;
 }
 
-export type InventoryMode = "basic" | "detailed" | "item";
+export type InventoryMode = "basic" | "basic-plus" | "detailed" | "item";
 
 export interface Character {
   id: string;
@@ -112,6 +122,7 @@ export interface Character {
 
   inventoryMode: InventoryMode;
   basicInventory: BasicInventory;
+  basicPlusInventory: BasicPlusInventory;
   detailedInventory: DetailedInventory;
   itemBasedInventory: ItemBasedInventory;
   coins: Coins;
@@ -181,10 +192,18 @@ export function blankCharacter(id: string, ownerId: string): Character {
     languages: "Common",
     literate: true,
 
-    weapons: [{ name: "", damage: "", ranged: false }],
+    weapons: [{ name: "", damage: "", bonus: "", ranged: false }],
 
     inventoryMode: "basic",
     basicInventory: { armourType: "unarmoured", carryingTreasure: false, equipment: "", weaponsArmour: "", magicItems: "", treasure: "" },
+    basicPlusInventory: {
+      armourType: "unarmoured",
+      carryingTreasure: false,
+      equipment: [{ name: "", weight: 0 }],
+      weaponsArmour: [{ name: "", weight: 0 }],
+      magicItems: [{ name: "", weight: 0 }],
+      treasure: [{ name: "", weight: 0 }],
+    },
     detailedInventory: {
       equipment: [{ name: "", weight: 0 }],
       weaponsArmour: [{ name: "", weight: 0 }],
@@ -261,6 +280,14 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
     abilities: { ...blank.abilities, ...raw.abilities },
     saves: { ...blank.saves, ...raw.saves },
     basicInventory: { ...blank.basicInventory, ...oldStandard, ...raw.basicInventory },
+    basicPlusInventory: {
+      armourType: raw.basicPlusInventory?.armourType ?? blank.basicPlusInventory.armourType,
+      carryingTreasure: raw.basicPlusInventory?.carryingTreasure ?? blank.basicPlusInventory.carryingTreasure,
+      equipment: raw.basicPlusInventory?.equipment ?? blank.basicPlusInventory.equipment,
+      weaponsArmour: raw.basicPlusInventory?.weaponsArmour ?? blank.basicPlusInventory.weaponsArmour,
+      magicItems: raw.basicPlusInventory?.magicItems ?? blank.basicPlusInventory.magicItems,
+      treasure: raw.basicPlusInventory?.treasure ?? blank.basicPlusInventory.treasure,
+    },
     detailedInventory: {
       equipment: raw.detailedInventory?.equipment ?? blank.detailedInventory.equipment,
       weaponsArmour: raw.detailedInventory?.weaponsArmour ?? blank.detailedInventory.weaponsArmour,
@@ -282,6 +309,6 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
     memorizedSpells: memorizedSpells ?? blank.memorizedSpells,
     spellbook: spellbook?.length === 6 ? spellbook : blank.spellbook,
     spellbookUnlockedLevels: spellbookUnlockedLevels ?? blank.spellbookUnlockedLevels,
-    weapons: raw.weapons?.length ? raw.weapons : blank.weapons,
+    weapons: raw.weapons?.length ? raw.weapons.map((w) => ({ ...w, bonus: w.bonus ?? "" })) : blank.weapons,
   };
 }

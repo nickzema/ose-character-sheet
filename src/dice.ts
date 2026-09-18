@@ -158,12 +158,33 @@ export async function rollWeapon(
   damage: string,
   attackBonus: number,
   hitAbilityMod: number,
-  dmgMod: number
+  dmgMod: number,
+  magicBonus: number = 0
 ): Promise<RollOutcome> {
   const dmg = damage.trim().toLowerCase().startsWith("d") ? `1${damage.trim()}` : damage.trim();
-  const atkPart = `1d20${termString([attackBonus, hitAbilityMod])} #Attack`;
-  const dmgPart = `${dmg}${termString([dmgMod])} #Damage`;
-  return rollNotation(`${atkPart}, ${dmgPart}`);
+  const atkMod = attackBonus + hitAbilityMod + magicBonus;
+  const dmgTotalMod = dmgMod + magicBonus;
+  const atkPart = `1d20${termString([attackBonus, hitAbilityMod, magicBonus])} #Attack`;
+  const dmgPart = `${dmg}${termString([dmgMod, magicBonus])} #Damage`;
+  const result = await rollNotation(`${atkPart}, ${dmgPart}`);
+
+  // This is a comma-separated "multiple rolls at once" notation, and per
+  // Dice+'s own docs each returned group's `total` is only the sum of the
+  // KEPT DICE - flat modifiers (our +3 attack bonus, +1 STR, etc.) are
+  // never folded in, and there's no separate "per-row total" field to
+  // read instead; Dice+'s docs say the caller is expected to recompute
+  // per-row totals itself from `groups` + the notation it sent. We
+  // already know these modifiers (we built the notation right above), so
+  // add them in ourselves rather than showing Dice+'s dice-only
+  // subtotal - which is what was making the banner disagree with Dice+'s
+  // own displayed result.
+  if (!result.usedFallback && result.parts.length >= 2) {
+    result.parts = [
+      { ...result.parts[0], label: "Attack", total: result.parts[0].total + atkMod },
+      { ...result.parts[1], label: "Damage", total: result.parts[1].total + dmgTotalMod },
+    ];
+  }
+  return result;
 }
 
 function localRoll(notation: string): Omit<RollOutcome, "usedFallback" | "fallbackReason"> {

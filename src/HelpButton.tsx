@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 export interface TourStep {
-  selector: string;
+  selector?: string;
   text: string;
 }
 
@@ -46,7 +46,7 @@ export default function HelpButton({ title, steps }: { title: string; steps: Tou
   // Scroll the target into view each time the step changes, so a highlight
   // further down the sheet is actually visible when its step opens.
   useEffect(() => {
-    if (!step) return;
+    if (!step?.selector) return;
     document.querySelector(step.selector)?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [i, open, step]);
 
