@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
 import type { Character } from "./types";
+import { syncLinkedToken } from "./statBubbles";
 
 const METADATA_KEY = "com.p4p.ose-character-sheet/roster";
 
@@ -33,12 +34,15 @@ export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName }: 
       c.id === id ? { ...c, portrait: imageUrl, linkedTokenId: tokenId } : c
     );
     await OBR.room.setMetadata({ [METADATA_KEY]: next });
+    // Push name/HP/AC to the token right away, not just on the next sheet edit.
+    const linked = next.find((c) => c.id === id);
+    if (linked) await syncLinkedToken(linked);
     setDone(true);
     setTimeout(() => OBR.popover.close(`com.p4p.ose-character-sheet/assign-popover`), 600);
   };
 
   if (done) {
-    return <div className="assign-popover"><p className="assign-done">Portrait assigned.</p></div>;
+    return <div className="assign-popover"><p className="assign-done">Token linked.</p></div>;
   }
 
   if (roster === null) {
