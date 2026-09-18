@@ -332,6 +332,8 @@ textarea.locked{ resize:none; }
 .inventory-wrap{ margin-top:18px; padding-top:14px; border-top:2px solid var(--ink); }
 .inventory-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px; }
 .inventory-status-row{ display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+/* Coins + Speed always sit hard right, same fixed sizes in every mode, Speed last. */
+.status-readouts{ display:flex; gap:10px; margin-left:auto; }
 .inv-toggle{ display:flex; border:1.5px solid var(--ink); flex-shrink:0; }
 .inv-tab{
   font-family:'Oswald',sans-serif; font-weight:600; font-size:11px; text-transform:uppercase;
@@ -339,9 +341,6 @@ textarea.locked{ resize:none; }
 }
 .inv-tab + .inv-tab{ border-left:1.5px solid var(--ink); }
 .inv-tab.active{ background:var(--ink); color:var(--chip-text); }
-
-/* Two-line mode description - reserved height so switching modes doesn't shift what's below. */
-.inv-desc{ min-height:2.7em; margin:0 0 10px; }
 
 /* Shared status-bar parts: every control and readout in every mode is the
    same height, so the row looks identical from Basic through Item-Based. */
@@ -367,7 +366,9 @@ textarea.locked{ resize:none; }
 }
 .status-label{ color:var(--caption); text-transform:uppercase; font-size:10.5px; font-weight:500; letter-spacing:0.03em; }
 .status-value{ font-weight:700; }
-.status-note{ color:var(--caption); }
+.status-note{ color:var(--caption); font-weight:500; }
+.status-box.coins{ width:190px; justify-content:space-between; }
+.status-box.speed{ width:140px; justify-content:space-between; }
 .status-box.overloaded{ background:#f5dada; border-color:#a11414; color:#8c1414; }
 .status-box.overloaded .status-label{ color:#8c1414; }
 
@@ -406,9 +407,12 @@ textarea.locked{ resize:none; }
 .ib-left{ display:flex; flex-direction:column; padding-right:14px; min-height:0; }
 .ib-left h4, .ib-packed-head h4{ font-family:'Alfa Slab One', serif; font-weight:400; font-size:16px; text-transform:uppercase; margin:0 0 4px; }
 .ib-left h4.ib-equipped-h{ margin-top:8px; }
-.ib-left .caption, .ib-packed-head .caption{ margin:0 0 6px; }
+.ib-left .caption{ margin:4px 0 4px; }
+.ib-notes{ display:grid; grid-template-columns:minmax(0,1fr) 88px minmax(0,1fr); margin-top:2px; }
+.ib-notes .caption{ margin:4px 0 0; }
+.ib-notes strong{ font-weight:700; }
 .ib-left textarea{ flex:1; min-height:64px; resize:none; margin-bottom:2px; }
-.ib-packed-head{ align-self:end; }
+.ib-packed-head{ align-self:start; }
 .ib-spine-head{
   align-self:end; text-align:center; font-family:'Oswald',sans-serif; font-weight:600; font-size:11px;
   text-transform:uppercase; letter-spacing:0.03em; color:var(--caption); line-height:1.3; padding-bottom:8px;

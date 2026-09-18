@@ -565,7 +565,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
         <div className="col-right">
           <div className="portrait-box" style={c.portrait ? { backgroundImage: `url('${c.portrait}')` } : undefined}
             onClick={() => canEdit && document.getElementById("portraitInput")?.click()}>
-            {!c.portrait && <p className="caption">Character portrait, symbol, description<br />(click to upload, or right-click a token in OBR)</p>}
+            {!c.portrait && <p className="caption">Character portrait, symbol, description</p>}
             {c.portrait && canEdit && (
               <button className="remove-portrait" onClick={(e) => { e.stopPropagation(); onChange({ ...c, portrait: null, linkedTokenId: null }); }}>Remove</button>
             )}
@@ -693,13 +693,6 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
   );
 }
 
-const MODE_DESCRIPTIONS: Record<Character["inventoryMode"], string> = {
-  "basic": "Free-text lists. Speed depends only on the armour you wear and whether the referee judges you to be carrying significant treasure - not on what's in the boxes.",
-  "basic-plus": "Same armour-and-treasure speed as Basic, with weighted item lists shared with Detailed. Weights are optional and for reference only; they never change your speed.",
-  "detailed": "Every item and coin has a weight in coins (cn), and your total sets your speed. Each coin weighs 1 cn, and over 1600 cn you can't move at all. Enter each item's weight below.",
-  "item": "Counts items instead of weight. Your speed is whichever is slower: your Equipped items or your Packed items. Up to 100 coins or gems count as 1 packed item.",
-};
-
 const DETAILED_STEPS = [
   { max: 400, rate: "120" },
   { max: 600, rate: "90" },
@@ -818,8 +811,6 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
         </div>
       </div>
 
-      <p className="caption inv-desc">{MODE_DESCRIPTIONS[c.inventoryMode]}</p>
-
       <div className="inventory-status-row">
         {(c.inventoryMode === "basic" || c.inventoryMode === "basic-plus") && (
           <>
@@ -849,31 +840,21 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
           </div>
         )}
 
-        <div className={`status-box ${c.inventoryMode === "detailed" && detailedTotal > 1600 ? "overloaded" : ""}`}>
-          <span className="status-label">Speed</span>
-          <span className="status-value">&rarr; {speedText}</span>
+        <div className="status-readouts">
+          <div className={`status-box coins ${c.inventoryMode === "detailed" && detailedTotal > 1600 ? "overloaded" : ""}`}>
+            <span className="status-label">{c.inventoryMode === "detailed" ? "Total Weight" : "Total Coins"}</span>
+            <span className="status-value">
+              {c.inventoryMode === "detailed" ? `${detailedTotal} cn` : c.inventoryMode === "basic-plus" ? detailedTotal : coinWeight}
+              {c.inventoryMode === "item" && (
+                <span className="status-note"> &rarr; ~{Math.ceil(coinWeight / 100)} slot{Math.ceil(coinWeight / 100) === 1 ? "" : "s"}</span>
+              )}
+            </span>
+          </div>
+          <div className={`status-box speed ${c.inventoryMode === "detailed" && detailedTotal > 1600 ? "overloaded" : ""}`}>
+            <span className="status-label">Speed</span>
+            <span className="status-value">{speedText}</span>
+          </div>
         </div>
-        {c.inventoryMode === "detailed" && (
-          <div className={`status-box ${detailedTotal > 1600 ? "overloaded" : ""}`}>
-            <span className="status-label">Total Weight</span>
-            <span className="status-value">{detailedTotal} cn</span>
-          </div>
-        )}
-        {c.inventoryMode === "basic-plus" && (
-          <div className="status-box">
-            <span className="status-label">Total Coins</span>
-            <span className="status-value">{detailedTotal}</span>
-          </div>
-        )}
-        {(c.inventoryMode === "basic" || c.inventoryMode === "item") && (
-          <div className="status-box">
-            <span className="status-label">Total Coins</span>
-            <span className="status-value">{coinWeight}</span>
-            {c.inventoryMode === "item" && (
-              <span className="status-note">&rarr; ~{Math.ceil(coinWeight / 100)} packed slot{Math.ceil(coinWeight / 100) === 1 ? "" : "s"}</span>
-            )}
-          </div>
-        )}
       </div>
 
       {c.inventoryMode === "basic" && (
@@ -926,15 +907,13 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
           <div className="ib-grid">
             <div className="ib-left" style={{ gridColumn: 1, gridRow: "1 / span 11" }}>
               <h4>Unencumbering Items</h4>
-              <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement). Doesn't affect movement.</Caption>
               <textarea value={c.itemBasedInventory.unencumbering} disabled={!canEdit} onChange={(e) => setUnenc(e.target.value)} />
+              <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement).</Caption>
               <h4 className="ib-equipped-h">Equipped Items</h4>
-              <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
             </div>
             <div className="ib-spine-head" style={{ gridColumn: 2, gridRow: 1 }}>Base<br />Mv. Rate</div>
             <div className="ib-packed-head" style={{ gridColumn: 3, gridRow: 1 }}>
               <h4>Packed Items</h4>
-              <Caption>All other equipment, packed into sacks and backpacks. Retrieving a packed item in combat optionally takes one round.</Caption>
             </div>
 
             {[
@@ -958,7 +937,16 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
               </div>
             ))}
           </div>
-          <Caption>STR modifier (optional, honor system - not enforced here): a STR-tagged row can only be used if your STR meets that threshold.</Caption>
+          <div className="ib-notes">
+            <div style={{ gridColumn: 1 }}>
+              <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
+            </div>
+            <div style={{ gridColumn: 3 }}>
+              <Caption>All other equipment, packed into sacks, backpacks, etc. In combat, retrieving a packed item optionally takes one round.</Caption>
+              <Caption><strong>STR modifier (optional):</strong> Optionally, remove slots at the top of the list based on the character's STR score.</Caption>
+              <Caption><strong><em>If not using this optional rule</em></strong>: Remove the top 3 slots.</Caption>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1026,7 +1014,7 @@ function ClassFeaturesSection({ character: c, canEdit, onChange, onRollThiefSkil
       {showTurnUndead && (
         <div className="feature-block show">
           <h4>Turn Undead &mdash; Level {c.level}</h4>
-          <Caption>Click the HD of the undead you're facing. T = auto-turn, D = auto-destroy, &mdash; = cannot be turned.</Caption>
+          <Caption>T = auto-turn, D = auto-destroy, &mdash; = cannot be turned.</Caption>
           <div className="compact-row">
             {TURN_UNDEAD_COLUMNS.map((col, i) => (
               <div className="compact-cell" key={col}>
@@ -1120,7 +1108,6 @@ function SpellsSection({ character: c, canEdit, onChange }: {
   return (
     <div className="feature-block show">
       <h4>Memorized Spells</h4>
-      <Caption>Add each spell you have memorized right now &mdash; memorize the same spell twice to cast it twice. Check it off once it's cast. Drag the handle to reorder.</Caption>
       {c.memorizedSpells.length > 0 && (
         <div className="memorized-row memorized-head">
           <span className="mem-head-spacer" />
@@ -1158,7 +1145,6 @@ function SpellsSection({ character: c, canEdit, onChange }: {
       {isMU && (
         <div className="spellbook-wrap">
           <h4>Spellbook</h4>
-          <Caption>Spells you've learned, chaptered by level. Unlock the next chapter as you gain access to higher-level spells. Drag to reorder within a level.</Caption>
           {Array.from({ length: c.spellbookUnlockedLevels }).map((_, li) => (
             <SpellbookChapter key={li} level={li + 1} spells={c.spellbook[li] ?? []} canEdit={canEdit}
               onChange={(spells) => updateChapter(li, spells)} />
