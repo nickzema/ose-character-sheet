@@ -116,3 +116,47 @@ export function detailedSpeedForWeight(totalWeight: number): number {
   }
   return 0; // over max load - can't move
 }
+
+// Item-Based Encumbrance (Carcass Crawler #2, "Item Slots"): equipped and
+// packed items are each looked up separately against their own row
+// breakpoints, and the character's actual speed is whichever of the two
+// is slower. STR only ever extends the top of the Packed list (the
+// STR-tagged rows) - it never affects Equipped. Row counts here match
+// this sheet's own reference (Packed runs to 19 rows, not the magazine's
+// printed 16 - confirmed against the user's own extended version).
+export const EQUIPPED_BREAKPOINTS: { maxRow: number; speed: number }[] = [
+  { maxRow: 3, speed: 120 },
+  { maxRow: 5, speed: 90 },
+  { maxRow: 7, speed: 60 },
+  { maxRow: 9, speed: 30 },
+];
+
+export const PACKED_BREAKPOINTS: { maxRow: number; speed: number }[] = [
+  { maxRow: 13, speed: 120 },
+  { maxRow: 15, speed: 90 },
+  { maxRow: 17, speed: 60 },
+  { maxRow: 19, speed: 30 },
+];
+
+function highestFilledRow(items: string[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]?.trim()) return i + 1; // 1-indexed row number
+  }
+  return 0; // nothing filled in
+}
+
+function speedForRow(row: number, breakpoints: { maxRow: number; speed: number }[]): number {
+  for (const bp of breakpoints) {
+    if (row <= bp.maxRow) return bp.speed;
+  }
+  return breakpoints[breakpoints.length - 1]?.speed ?? 0;
+}
+
+// The row a character's items reach down to in EITHER column can trigger
+// a slower speed - it isn't just about Packed. Both are checked and the
+// worse (lower) result wins, exactly as Carcass Crawler #2 specifies.
+export function itemBasedSpeed(equipped: string[], packed: string[]): number {
+  const equippedSpeed = speedForRow(highestFilledRow(equipped), EQUIPPED_BREAKPOINTS);
+  const packedSpeed = speedForRow(highestFilledRow(packed), PACKED_BREAKPOINTS);
+  return Math.min(equippedSpeed, packedSpeed);
+}

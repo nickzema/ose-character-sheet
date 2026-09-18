@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { Character, Weapon, MemorizedSpell, BasicInventory, DetailedInventory, WeightedItem, ArmourType } from "./types";
 import {
   abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS,
-  movementTriple, BASIC_MOVEMENT, detailedSpeedForWeight,
+  movementTriple, BASIC_MOVEMENT, detailedSpeedForWeight, itemBasedSpeed,
 } from "./abilities";
 import { rollWeapon, rollNotation, termString } from "./dice";
 import { CLERIC_SPELLS, MAGIC_USER_SPELLS } from "./spells";
@@ -686,11 +686,13 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
   const setUnenc = (v: string) => onChange({ ...c, itemBasedInventory: { ...c.itemBasedInventory, unencumbering: v } });
   const setEquipped = (i: number, v: string) => {
     const arr = [...c.itemBasedInventory.equipped]; arr[i] = v;
-    onChange({ ...c, itemBasedInventory: { ...c.itemBasedInventory, equipped: arr } });
+    const itemBasedInventory = { ...c.itemBasedInventory, equipped: arr };
+    applyMovement(itemBasedSpeed(arr, c.itemBasedInventory.packed), { itemBasedInventory });
   };
   const setPacked = (i: number, v: string) => {
     const arr = [...c.itemBasedInventory.packed]; arr[i] = v;
-    onChange({ ...c, itemBasedInventory: { ...c.itemBasedInventory, packed: arr } });
+    const itemBasedInventory = { ...c.itemBasedInventory, packed: arr };
+    applyMovement(itemBasedSpeed(c.itemBasedInventory.equipped, arr), { itemBasedInventory });
   };
 
   const detailedBoxes: { key: keyof DetailedInventory; title: string; placeholder: string }[] = [
@@ -797,72 +799,77 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
       )}
 
       {c.inventoryMode === "item" && (
-        <div className="encumbrance-grid">
-          <table className="encumbrance-table">
-            <colgroup><col style={{ width: "38%" }} /><col style={{ width: 80 }} /><col /></colgroup>
-            <tbody>
-              <tr className="header-row">
-                <td><h3>Unencumbering Items</h3></td>
-                <td className="mv-header">Base<br />Mv. Rate</td>
-                <td><h3>Packed Items</h3></td>
-              </tr>
-              {/*
-                20 packed-item rows total (matches itemBasedInventory.packed's fixed length):
-                - rows 0-5: share the Unencumbering box (rowSpan 6) on the left, STR-tagged on the right
-                - row 6: the "Equipped Items" heading + caption
-                - rows 7-12: the 6 equipped-item lines (matches itemBasedInventory.equipped's length)
-                - rows 13-19: packed items only, nothing in the left column
-                The movement-rate column spans, left to right: 120'(40') across rows 0-7 (8 rows),
-                90'(30') across rows 8-14 (7 rows), 60'(20') across rows 15-16 (2 rows), and
-                30'(10') across rows 17-19 (3 rows) - 8+7+2+3 = 20, so every row is accounted for
-                and no rowSpan ever reaches past a row that doesn't exist.
-              */}
-              {Array.from({ length: 20 }).map((_, row) => {
-                const isEquippedHeaderRow = row === 6;
-                const isEquippedInputRow = row >= 7 && row <= 12;
-                const equippedIdx = row - 7;
-                const isStrRow = row < 6;
+        <div className="encumbrance-grid-v2">
+          {/*
+            Equipped (9 rows) and Packed (19 rows) are separate lookups per
+            the actual rule (Carcass Crawler #2, "Item Slots") - your
+            speed is whichever of the two is slower. They don't share row
+            meaning, so each gets its own self-contained mini-table with
+            its own movement-rate spine, rather than being forced into one
+            shared grid (that's what broke this section before: two
+            columns with genuinely different row counts can't share a
+            single spine and stay aligned).
+            Equipped breakpoints: rows 1-3=120', 4-5=90', 6-7=60', 8-9=30'.
+            Packed breakpoints: rows 1-13=120', 14-15=90', 16-17=60', 18-19=30'.
+          */}
+          <div className="ib-col">
+            <div className="unenc-box">
+              <h3>Unencumbering Items</h3>
+              <textarea rows={3} value={c.itemBasedInventory.unencumbering} disabled={!canEdit} onChange={(e) => setUnenc(e.target.value)} />
+              <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement). Doesn't affect movement.</Caption>
+            </div>
+            <table className="ib-table">
+              <colgroup><col /><col style={{ width: 74 }} /></colgroup>
+              <tbody>
+                <tr><td colSpan={2}>
+                  <h3>Equipped Items</h3>
+                  <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
+                </td></tr>
+                {c.itemBasedInventory.equipped.map((val, i) => {
+                  const row = i + 1;
+                  let ladderCell: ReactNode = null;
+                  if (row === 1) ladderCell = <td rowSpan={3} className="ladder-cell first-zone">120' (40')</td>;
+                  else if (row === 4) ladderCell = <td rowSpan={2} className="ladder-cell">90' (30')</td>;
+                  else if (row === 6) ladderCell = <td rowSpan={2} className="ladder-cell">60' (20')</td>;
+                  else if (row === 8) ladderCell = <td rowSpan={2} className="ladder-cell">30' (10')</td>;
+                  return (
+                    <tr key={i}>
+                      <td className="ib-input-cell"><input value={val} disabled={!canEdit} onChange={(e) => setEquipped(i, e.target.value)} /></td>
+                      {ladderCell}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-                let ladderCell: ReactNode = null;
-                if (row === 0) ladderCell = <td rowSpan={8} className="ladder-cell first-zone">120' (40')</td>;
-                else if (row === 8) ladderCell = <td rowSpan={7} className="ladder-cell">90' (30')</td>;
-                else if (row === 15) ladderCell = <td rowSpan={2} className="ladder-cell">60' (20')</td>;
-                else if (row === 17) ladderCell = <td rowSpan={3} className="ladder-cell">30' (10')</td>;
-
-                return (
-                  <tr key={row}>
-                    {row === 0 && (
-                      <td rowSpan={6} className="unenc-cell">
-                        <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement).</Caption>
-                        <textarea rows={3} className="locked" value={c.itemBasedInventory.unencumbering} disabled={!canEdit} onChange={(e) => setUnenc(e.target.value)} />
+          <div className="ib-col">
+            <table className="ib-table packed">
+              <colgroup><col style={{ width: 74 }} /><col /></colgroup>
+              <tbody>
+                <tr><td colSpan={2}><h3>Packed Items</h3></td></tr>
+                {c.itemBasedInventory.packed.map((val, i) => {
+                  const row = i + 1;
+                  let ladderCell: ReactNode = null;
+                  if (row === 1) ladderCell = <td rowSpan={13} className="ladder-cell first-zone">120' (40')</td>;
+                  else if (row === 14) ladderCell = <td rowSpan={2} className="ladder-cell">90' (30')</td>;
+                  else if (row === 16) ladderCell = <td rowSpan={2} className="ladder-cell">60' (20')</td>;
+                  else if (row === 18) ladderCell = <td rowSpan={2} className="ladder-cell">30' (10')</td>;
+                  return (
+                    <tr key={i}>
+                      {ladderCell}
+                      <td className="ib-input-cell">
+                        <input value={val} disabled={!canEdit} onChange={(e) => setPacked(i, e.target.value)} />
+                        {i < 6 && <span className="str-tag">{strTags[i]}</span>}
                       </td>
-                    )}
-                    {isEquippedHeaderRow && (
-                      <td className="equip-cell">
-                        <h3>Equipped Items</h3>
-                        <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
-                      </td>
-                    )}
-                    {isEquippedInputRow && (
-                      <td className="equip-cell">
-                        <input className="equip-input" value={c.itemBasedInventory.equipped[equippedIdx]} disabled={!canEdit}
-                          onChange={(e) => setEquipped(equippedIdx, e.target.value)} />
-                      </td>
-                    )}
-                    {row > 12 && <td className="equip-cell"></td>}
-                    {ladderCell}
-                    <td className="packed-cell">
-                      <input value={c.itemBasedInventory.packed[row]} disabled={!canEdit} onChange={(e) => setPacked(row, e.target.value)} />
-                      {isStrRow && <span className="str-tag">{strTags[row]}</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <Caption>Everything else, packed into sacks and backpacks. Retrieving a packed item in combat optionally takes one round.</Caption>
-          <Caption>STR modifier (optional): remove slots at the top of the list based on STR score. If not using this rule, remove the top 3 slots.</Caption>
-          <Caption>250 coins = 1 item slot.</Caption>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Caption>All other equipment, packed into sacks and backpacks. Retrieving a packed item in combat optionally takes one round.</Caption>
+            <Caption>STR modifier (optional, honor system - not enforced here): a STR-tagged row can only be used if your STR meets that threshold.</Caption>
+          </div>
         </div>
       )}
     </div>

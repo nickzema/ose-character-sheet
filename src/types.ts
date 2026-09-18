@@ -193,8 +193,8 @@ export function blankCharacter(id: string, ownerId: string): Character {
     },
     itemBasedInventory: {
       unencumbering: "",
-      equipped: ["", "", "", "", "", ""],
-      packed: Array(20).fill(""),
+      equipped: Array(9).fill(""),
+      packed: Array(19).fill(""),
     },
     coins: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 },
 
@@ -218,6 +218,11 @@ export function blankCharacter(id: string, ownerId: string): Character {
  * crash the sheet when it tries to read something that isn't there -
  * this makes old data load safely instead, healing itself as you edit it.
  */
+function resizeSlots(arr: string[] | undefined, length: number): string[] {
+  const src = arr ?? [];
+  return Array.from({ length }, (_, i) => src[i] ?? "");
+}
+
 export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: string }): Character {
   const blank = blankCharacter(raw.id, raw.ownerId ?? "unknown");
   // Old saved data used inventoryMode "standard" before Basic/Detailed were split out - treat it as Basic.
@@ -264,8 +269,13 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
     },
     itemBasedInventory: {
       unencumbering: raw.itemBasedInventory?.unencumbering ?? blank.itemBasedInventory.unencumbering,
-      equipped: raw.itemBasedInventory?.equipped?.length ? raw.itemBasedInventory.equipped : blank.itemBasedInventory.equipped,
-      packed: raw.itemBasedInventory?.packed?.length ? raw.itemBasedInventory.packed : blank.itemBasedInventory.packed,
+      // Resize to the current row counts (Equipped 9, Packed 19) rather
+      // than just keeping whatever length was saved - the row count
+      // itself changed (was wrongly 6/20 before), so old data needs to
+      // be preserved by index and padded/trimmed to fit, not replaced
+      // wholesale just because *a* length was already present.
+      equipped: resizeSlots(raw.itemBasedInventory?.equipped, blank.itemBasedInventory.equipped.length),
+      packed: resizeSlots(raw.itemBasedInventory?.packed, blank.itemBasedInventory.packed.length),
     },
     coins: { ...blank.coins, ...raw.coins },
     classFeatures: { ...blank.classFeatures, ...raw.classFeatures },

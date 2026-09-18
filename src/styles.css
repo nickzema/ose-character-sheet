@@ -383,46 +383,39 @@ textarea.locked{ resize:none; }
 .inv-box h4{ font-family:'Alfa Slab One', serif; font-weight:400; font-size:16px; text-transform:uppercase; margin:0 0 8px; }
 .inv-box textarea{ height:140px; }
 
-.encumbrance-grid{ margin-top:0; }
-.encumbrance-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-.encumbrance-table td{ padding:0; vertical-align:bottom; }
-.header-row td{ padding-bottom:8px; vertical-align:bottom; }
-.header-row h3{ margin:0; }
-.mv-header{ text-align:center; font-family:'Oswald',sans-serif; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.03em; color:var(--caption); line-height:1.3; }
+/* Item-Based Encumbrance v2: Equipped and Packed are two independent
+   mini-tables side by side (see the JSX comment for why) rather than one
+   shared grid - each has its own row count and its own movement-rate
+   spine, so each just needs to be internally consistent with itself. */
+.encumbrance-grid-v2{ display:flex; gap:18px; align-items:flex-start; }
+.ib-col{ flex:1; min-width:0; }
+.ib-col h3{ margin:0 0 2px; }
 
-.unenc-cell{ padding-right:14px; vertical-align:top; }
+.unenc-box{ margin-bottom:14px; }
+.unenc-box textarea{
+  width:100%; resize:none; border:1.5px solid var(--ink); background:var(--paper);
+  font-family:'Source Serif 4', serif; font-size:13px; padding:6px 7px; color:var(--ink); margin:4px 0;
+}
 
-/* Equipped Items and Packed Items rows MUST resolve to identical row
-   heights, row for row, since they sit in the same <tr> down the whole
-   table - the movement-rate labels rowSpan across both columns. Both use
-   the exact same box model (height, padding, vertical-align, and a
-   TD-level - not input-level - border-bottom) so neither column can
-   drift out of alignment with the other as the table goes down. This
-   was the actual bug behind the broken-looking layout: the two columns'
-   ruled lines were positioned by different rules (one on the input,
-   vertically centered; one on the cell, bottom-anchored), so they
-   compounded out of sync row by row. */
-.encumbrance-table .equip-cell{
-  padding:0 14px 4px 0; vertical-align:bottom; height:23px; border-bottom:1.5px solid var(--ink);
-}
-.equip-input{
-  width:100%; border:none; background:transparent;
-  font-family:'Source Serif 4', serif; font-size:13px; padding:0 2px; color:var(--ink);
-}
-.encumbrance-table .ladder-cell{
-  text-align:center; vertical-align:middle; font-family:'Oswald',sans-serif;
-  font-weight:700; font-size:12px; padding:0 4px; border-top:1.5px solid var(--ink);
-}
-.encumbrance-table .ladder-cell.first-zone{ border-top:none; }
+.ib-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
+.ib-table td{ padding:0; vertical-align:bottom; }
+.ib-table > tbody > tr:first-child td{ padding-bottom:6px; vertical-align:bottom; }
 
-.packed-cell{
-  border-bottom:1.5px solid var(--ink) !important; padding:0 2px 4px !important;
-  height:23px; vertical-align:bottom;
+.ib-input-cell{
+  border-bottom:1.5px solid var(--ink); height:23px; padding:0 2px 4px !important; vertical-align:bottom;
 }
-.packed-cell input{
+.ib-input-cell input{
   width:75%; border:none; background:transparent; font-family:'Source Serif 4', serif;
   font-size:13px; padding:0 2px; color:var(--ink);
 }
+.ib-table.packed .ib-input-cell{ padding-left:8px !important; }
+
+.ladder-cell{
+  text-align:center; vertical-align:middle; font-family:'Oswald',sans-serif;
+  font-weight:700; font-size:12px; padding:0 4px; border-top:1.5px solid var(--ink); width:74px;
+}
+.ladder-cell.first-zone{ border-top:none; }
+
 .str-tag{ font-family:'Source Serif 4', serif; font-style:italic; font-size:10.5px; color:var(--caption); float:right; }
 
 /* Class Features */
