@@ -339,8 +339,16 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
       return;
     }
     if (value === "T" || value === "D") {
-      const verb = value === "T" ? "Auto-Turn" : "Auto-Destroy";
-      setRoll({ label: `Turn Undead (HD ${col})`, detail: `${verb}! No roll needed.`, outcome: "success" });
+      // Auto-turn/destroy skips the 2d6-vs-target roll entirely (there's
+      // nothing to beat), but still needs the follow-up roll for how much
+      // HD it affects - no announcement first, just roll it immediately.
+      const verb = value === "T" ? "turns" : "destroys";
+      const { total: hdTotal, usedFallback, fallbackReason } = await rollNotation("2d6");
+      setRoll({
+        label: `Turn Undead (HD ${col})`, outcome: "success",
+        detail: `Auto-${value === "T" ? "Turn" : "Destroy"} \u2014 ${verb} ${hdTotal} HD worth of undead`,
+        fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined,
+      });
       return;
     }
     const target = value as number;
@@ -799,77 +807,65 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
       )}
 
       {c.inventoryMode === "item" && (
-        <div className="encumbrance-grid-v2">
+        <div className="encumbrance-grid">
           {/*
-            Equipped (9 rows) and Packed (19 rows) are separate lookups per
-            the actual rule (Carcass Crawler #2, "Item Slots") - your
-            speed is whichever of the two is slower. They don't share row
-            meaning, so each gets its own self-contained mini-table with
-            its own movement-rate spine, rather than being forced into one
-            shared grid (that's what broke this section before: two
-            columns with genuinely different row counts can't share a
-            single spine and stay aligned).
-            Equipped breakpoints: rows 1-3=120', 4-5=90', 6-7=60', 8-9=30'.
-            Packed breakpoints: rows 1-13=120', 14-15=90', 16-17=60', 18-19=30'.
+            One shared 19-row table, one shared spine - this works because
+            Packed's breakpoints are always exactly Equipped's + 10 (3/13,
+            5/15, 7/17, 9/19), so offsetting Equipped to start at row 11
+            makes every one of its own breakpoints land on the exact same
+            row as Packed's. Rows 1-10 on the left are one merged cell
+            (Unencumbering box + both header/captions); Equipped's 9 real
+            input rows run from row 11 to row 19, ending exactly where
+            Packed's 19 rows end too.
           */}
-          <div className="ib-col">
-            <div className="unenc-box">
-              <h3>Unencumbering Items</h3>
-              <textarea rows={3} value={c.itemBasedInventory.unencumbering} disabled={!canEdit} onChange={(e) => setUnenc(e.target.value)} />
-              <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement). Doesn't affect movement.</Caption>
-            </div>
-            <table className="ib-table">
-              <colgroup><col /><col style={{ width: 74 }} /></colgroup>
-              <tbody>
-                <tr><td colSpan={2}>
-                  <h3>Equipped Items</h3>
-                  <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
-                </td></tr>
-                {c.itemBasedInventory.equipped.map((val, i) => {
-                  const row = i + 1;
-                  let ladderCell: ReactNode = null;
-                  if (row === 1) ladderCell = <td rowSpan={3} className="ladder-cell first-zone">120' (40')</td>;
-                  else if (row === 4) ladderCell = <td rowSpan={2} className="ladder-cell">90' (30')</td>;
-                  else if (row === 6) ladderCell = <td rowSpan={2} className="ladder-cell">60' (20')</td>;
-                  else if (row === 8) ladderCell = <td rowSpan={2} className="ladder-cell">30' (10')</td>;
-                  return (
-                    <tr key={i}>
-                      <td className="ib-input-cell"><input value={val} disabled={!canEdit} onChange={(e) => setEquipped(i, e.target.value)} /></td>
-                      {ladderCell}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <table className="encumbrance-table">
+            <colgroup><col style={{ width: "38%" }} /><col style={{ width: 74 }} /><col /></colgroup>
+            <tbody>
+              <tr className="header-row">
+                <td><h3>Unencumbering Items</h3></td>
+                <td className="mv-header">Base<br />Mv. Rate</td>
+                <td><h3>Packed Items</h3></td>
+              </tr>
+              {Array.from({ length: 19 }).map((_, row) => {
+                const isEquippedRow = row >= 10; // rows 11-19 (0-indexed 10-18)
+                const equippedIdx = row - 10;
 
-          <div className="ib-col">
-            <table className="ib-table packed">
-              <colgroup><col style={{ width: 74 }} /><col /></colgroup>
-              <tbody>
-                <tr><td colSpan={2}><h3>Packed Items</h3></td></tr>
-                {c.itemBasedInventory.packed.map((val, i) => {
-                  const row = i + 1;
-                  let ladderCell: ReactNode = null;
-                  if (row === 1) ladderCell = <td rowSpan={13} className="ladder-cell first-zone">120' (40')</td>;
-                  else if (row === 14) ladderCell = <td rowSpan={2} className="ladder-cell">90' (30')</td>;
-                  else if (row === 16) ladderCell = <td rowSpan={2} className="ladder-cell">60' (20')</td>;
-                  else if (row === 18) ladderCell = <td rowSpan={2} className="ladder-cell">30' (10')</td>;
-                  return (
-                    <tr key={i}>
-                      {ladderCell}
-                      <td className="ib-input-cell">
-                        <input value={val} disabled={!canEdit} onChange={(e) => setPacked(i, e.target.value)} />
-                        {i < 6 && <span className="str-tag">{strTags[i]}</span>}
+                let ladderCell: ReactNode = null;
+                if (row === 0) ladderCell = <td rowSpan={13} className="ladder-cell first-zone">120' (40')</td>;
+                else if (row === 13) ladderCell = <td rowSpan={2} className="ladder-cell">90' (30')</td>;
+                else if (row === 15) ladderCell = <td rowSpan={2} className="ladder-cell">60' (20')</td>;
+                else if (row === 17) ladderCell = <td rowSpan={2} className="ladder-cell">30' (10')</td>;
+
+                return (
+                  <tr key={row}>
+                    {row === 0 && (
+                      <td rowSpan={10} className="unenc-cell">
+                        <div className="unenc-cell-inner">
+                          <textarea value={c.itemBasedInventory.unencumbering} disabled={!canEdit} onChange={(e) => setUnenc(e.target.value)} />
+                          <Caption>Clothing, necklaces, rings, etc. Not encumbering unless carried in large numbers (referee's judgement). Doesn't affect movement.</Caption>
+                          <h3>Equipped Items</h3>
+                          <Caption>Anything held, actively in use, or ready to use at short notice: armour worn, shields or weapons held, sheathed weapons, items worn on the belt.</Caption>
+                        </div>
                       </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <Caption>All other equipment, packed into sacks and backpacks. Retrieving a packed item in combat optionally takes one round.</Caption>
-            <Caption>STR modifier (optional, honor system - not enforced here): a STR-tagged row can only be used if your STR meets that threshold.</Caption>
-          </div>
+                    )}
+                    {isEquippedRow && (
+                      <td className="ib-input-cell">
+                        <input value={c.itemBasedInventory.equipped[equippedIdx]} disabled={!canEdit}
+                          onChange={(e) => setEquipped(equippedIdx, e.target.value)} />
+                      </td>
+                    )}
+                    {ladderCell}
+                    <td className="ib-input-cell packed">
+                      <input value={c.itemBasedInventory.packed[row]} disabled={!canEdit} onChange={(e) => setPacked(row, e.target.value)} />
+                      {row < 6 && <span className="str-tag">{strTags[row]}</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <Caption>All other equipment, packed into sacks and backpacks. Retrieving a packed item in combat optionally takes one round.</Caption>
+          <Caption>STR modifier (optional, honor system - not enforced here): a STR-tagged row can only be used if your STR meets that threshold.</Caption>
         </div>
       )}
     </div>
