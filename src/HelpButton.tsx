@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface TourStep {
   selector?: string;
@@ -39,6 +39,7 @@ export default function HelpButton({ title, steps }: { title: string; steps: Tou
   const [open, setOpen] = useState(false);
   const [i, setI] = useState(0);
   const close = () => { setOpen(false); setI(0); };
+  const nextRef = useRef<HTMLButtonElement>(null);
 
   const step = open ? steps[i] : null;
   const rect = useTargetRect(step?.selector ?? null);
@@ -49,6 +50,27 @@ export default function HelpButton({ title, steps }: { title: string; steps: Tou
     if (!step?.selector) return;
     document.querySelector(step.selector)?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [i, open, step]);
+
+  // Auto-focus Next/Done on every step so the person can just keep
+  // pressing Enter/Space to blast through the tour without having to
+  // move the mouse to the button each time - a real page can't move the
+  // actual cursor, but keeping focus there gets the same "just keep
+  // going" effect. Arrow keys work too as a fallback.
+  useEffect(() => {
+    if (!open) return;
+    nextRef.current?.focus();
+  }, [i, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { close(); return; }
+      if (e.key === "ArrowRight") { setI((n) => Math.min(n + 1, steps.length - 1)); }
+      if (e.key === "ArrowLeft") { setI((n) => Math.max(n - 1, 0)); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, steps.length]);
 
   if (!open) {
     return <button className="help-btn" data-tip={title} onClick={() => setOpen(true)}>?</button>;
@@ -88,9 +110,9 @@ export default function HelpButton({ title, steps }: { title: string; steps: Tou
           <div className="tour-buttons">
             {i > 0 && <button className="btn text" onClick={() => setI((n) => n - 1)}>Back</button>}
             {i < steps.length - 1 ? (
-              <button className="btn" onClick={() => setI((n) => n + 1)}>Next</button>
+              <button ref={nextRef} className="btn" onClick={() => setI((n) => n + 1)}>Next</button>
             ) : (
-              <button className="btn" onClick={close}>Done</button>
+              <button ref={nextRef} className="btn" onClick={close}>Done</button>
             )}
           </div>
         </div>

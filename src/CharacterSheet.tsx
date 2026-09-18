@@ -207,24 +207,35 @@ function Caption({ children }: { children: React.ReactNode }) {
 // testing - the standard "height:1px" trick for this doesn't hold up
 // here). Measuring the cell's real clientHeight directly sidesteps that
 // entirely and re-measures via ResizeObserver if anything changes it.
+// 10 Packed rows at .ib-input-cell's fixed CSS height (23px content + 4px
+// bottom padding + ~1px border ~= 23.8px), measured directly in a real
+// browser render. This is a constant, not a live measurement, on
+// purpose: the previous version measured the merged cell's own
+// rendered height with a ResizeObserver, but that cell's height is
+// ITSELF driven by the textarea inside it (nothing else constrains a
+// rowSpan'd cell's height) - so growing the textarea grew the cell,
+// which retriggered the observer, which grew the textarea again: an
+// unbounded feedback loop, which is what was "infinitely expanding."
+// Measuring only `other` below (the captions/heading, whose natural
+// size the textarea can't affect) breaks that cycle for good.
+const UNENC_TARGET_HEIGHT = 238;
+
 function UnencumberingCell({ value, canEdit, onChange }: { value: string; canEdit: boolean; onChange: (v: string) => void }) {
-  const cellRef = useRef<HTMLTableCellElement>(null);
   const otherRef = useRef<HTMLDivElement>(null);
   const [taHeight, setTaHeight] = useState(80);
 
   useEffect(() => {
-    const cell = cellRef.current;
     const other = otherRef.current;
-    if (!cell || !other) return;
-    const recalc = () => setTaHeight(Math.max(cell.clientHeight - other.scrollHeight - 4, 60));
+    if (!other) return;
+    const recalc = () => setTaHeight(Math.max(UNENC_TARGET_HEIGHT - other.scrollHeight - 4, 60));
     recalc();
     const ro = new ResizeObserver(recalc);
-    ro.observe(cell);
+    ro.observe(other);
     return () => ro.disconnect();
   }, []);
 
   return (
-    <td rowSpan={10} className="unenc-cell" ref={cellRef}>
+    <td rowSpan={10} className="unenc-cell">
       <div className="unenc-cell-inner">
         <textarea
           style={{ height: taHeight }}
@@ -378,9 +389,10 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
 
   // Thief skills: percentage skills are d100 roll-under; Hear Noise is x-in-6.
   const rollThiefSkill = (key: string, displayValue: string) => {
-    if (key === "HN") return rollXin6("Hear Noise", `${parseHearNoiseRange(displayValue)}-in-6`);
+    const label = THIEF_SKILL_NAMES[key] || key;
+    if (key === "HN") return rollXin6(label, `${parseHearNoiseRange(displayValue)}-in-6`);
     const pct = parseInt(displayValue, 10) || 0;
-    return rollAndShow(key, "1d100", (total) => ({
+    return rollAndShow(label, "1d100", (total) => ({
       rolled: total, target: pct, outcome: total <= pct ? "success" : "fail",
     }));
   };
@@ -441,6 +453,14 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
     set("weapons", weapons);
   };
   const addWeaponRow = () => set("weapons", [...c.weapons, { name: "", damage: "", bonus: "", ranged: false }]);
+  const [weaponDragIndex, setWeaponDragIndex] = useState<number | null>(null);
+  const [weaponOverIndex, setWeaponOverIndex] = useState<number | null>(null);
+  const dropWeapon = (i: number) => {
+    if (weaponDragIndex === null || weaponDragIndex === i) { setWeaponOverIndex(null); return; }
+    set("weapons", reorder(c.weapons, weaponDragIndex, i));
+    setWeaponDragIndex(null);
+    setWeaponOverIndex(null);
+  };
 
   const strTags = ["STR 18+", "STR 16+", "STR 13+", "STR 9+", "STR 6+", "STR 4+"];
 
@@ -568,6 +588,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
           <div>
             <h3 data-tour="weapons-heading">Weapons</h3>
             <div className="weapon-row weapon-head">
+              <span className="mem-head-spacer" />
               <span className="caption" style={{ margin: 0, flex: 1 }}>Weapon</span>
               <span className="caption" style={{ margin: 0, width: 56, textAlign: "center" }}>Damage</span>
               <span className="caption" style={{ margin: 0, width: 40, textAlign: "center" }}>Bonus</span>
@@ -575,7 +596,15 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
               <span className="caption" style={{ margin: 0, width: 48 }}></span>
             </div>
             {c.weapons.map((w, i) => (
-              <div className="weapon-row" key={i}>
+              <div className={`weapon-row ${weaponDragIndex === i ? "dragging" : ""} ${weaponOverIndex === i && weaponDragIndex !== i ? "drag-over" : ""}`} key={i}
+                onDragOver={(e) => { if (!canEdit) return; e.preventDefault(); setWeaponOverIndex(i); }}
+                onDragLeave={() => setWeaponOverIndex((cur) => (cur === i ? null : cur))}
+                onDrop={() => canEdit && dropWeapon(i)}>
+                {canEdit ? (
+                  <span draggable onDragStart={() => setWeaponDragIndex(i)} onDragEnd={() => { setWeaponDragIndex(null); setWeaponOverIndex(null); }}>
+                    <DragHandle />
+                  </span>
+                ) : <span className="mem-head-spacer" />}
                 <input className="wname" value={w.name} placeholder="Judgement (Warhammer)" disabled={!canEdit}
                   onChange={(e) => updateWeapon(i, { name: e.target.value })} />
                 <input className="wdmg" value={w.damage} placeholder="1d6" disabled={!canEdit} data-tour={i === 0 ? "weapon-dmg" : undefined}
@@ -690,7 +719,23 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
           <h3>Coins</h3>
           {(["pp", "gp", "ep", "sp", "cp"] as const).map((k) => (
             <ChipRow key={k} chip={k.toUpperCase()} value={c.coins[k]} disabled={!canEdit}
-              onChange={(v) => set("coins", { ...c.coins, [k]: Number(v) || 0 })} />
+              onChange={(v) => {
+                const coins = { ...c.coins, [k]: Number(v) || 0 };
+                // Coins are weight too (1cn each, any denomination) - if
+                // Detailed is the active mode, editing the purse here has
+                // to recompute movement the same way editing an item
+                // would, or the Movement section would show a stale speed
+                // until some other edit happened to trigger a recalc.
+                if (c.inventoryMode === "detailed") {
+                  const newCoinWeight = coins.pp + coins.gp + coins.ep + coins.sp + coins.cp;
+                  const itemTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+                    .reduce((sum, key) => sum + c.detailedInventory[key].reduce((s, it) => s + (it.weight || 0), 0), 0);
+                  const { overland, exploration, encounter } = movementTriple(detailedSpeedForWeight(itemTotal + newCoinWeight));
+                  onChange({ ...c, coins, baseMove: exploration, overlandMove: overland, encounterMove: encounter });
+                } else {
+                  onChange({ ...c, coins });
+                }
+              }} />
           ))}
         </div>
       </div>
@@ -719,19 +764,10 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
 
   // Every coin weighs 1cn regardless of denomination (OSE: "Coin (any
   // type) - 1"), so the coin purse's contribution to weight is just the
-  // sum of how many coins are in it, full stop.
+  // sum of how many coins are in it, full stop. Editing the actual coin
+  // amounts happens in the Coins section (main component) now, not here -
+  // see its onChange for the matching Detailed-movement recalculation.
   const coinWeight = c.coins.pp + c.coins.gp + c.coins.ep + c.coins.sp + c.coins.cp;
-  const setCoins = (k: "pp" | "gp" | "ep" | "sp" | "cp", v: number) => {
-    const coins = { ...c.coins, [k]: v };
-    if (c.inventoryMode === "detailed") {
-      const newCoinWeight = coins.pp + coins.gp + coins.ep + coins.sp + coins.cp;
-      const itemTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
-        .reduce((sum, key) => sum + c.detailedInventory[key].reduce((s, it) => s + (it.weight || 0), 0), 0);
-      applyMovement(detailedSpeedForWeight(itemTotal + newCoinWeight), { coins });
-    } else {
-      onChange({ ...c, coins });
-    }
-  };
 
   const setBasic = (k: keyof BasicInventory, v: string | boolean) => {
     const basicInventory = { ...c.basicInventory, [k]: v };
@@ -746,31 +782,14 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
   };
 
   // Basic+: same armour-driven movement as Basic, but with Detailed's
-  // growable weighted-item lists instead of freeform text boxes. The
-  // weight these items (and coins) add up to is shown for reference only
-  // - it never drives movement, since Basic+ is still the Basic system.
-  const setBasicPlusArmour = (k: "armourType" | "carryingTreasure", v: string | boolean) => {
-    const basicPlusInventory = { ...c.basicPlusInventory, [k]: v };
-    const armourType = (k === "armourType" ? v : c.basicPlusInventory.armourType) as ArmourType;
-    const withTreasure = (k === "carryingTreasure" ? v : c.basicPlusInventory.carryingTreasure) as boolean;
-    const base = BASIC_MOVEMENT[armourType][withTreasure ? "with" : "without"];
-    applyMovement(base, { basicPlusInventory });
-  };
-  const basicPlusItemTotal = (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
-    .reduce((sum, k) => sum + c.basicPlusInventory[k].reduce((s, item) => s + (item.weight || 0), 0), 0);
-  const basicPlusTotal = basicPlusItemTotal + coinWeight;
-  const setBasicPlusItem = (category: keyof DetailedInventory, i: number, patch: Partial<WeightedItem>) => {
-    const items = c.basicPlusInventory[category].map((it, idx) => (idx === i ? { ...it, ...patch } : it));
-    onChange({ ...c, basicPlusInventory: { ...c.basicPlusInventory, [category]: items } });
-  };
-  const addBasicPlusRow = (category: keyof DetailedInventory) => {
-    onChange({ ...c, basicPlusInventory: { ...c.basicPlusInventory, [category]: [...c.basicPlusInventory[category], { name: "", weight: 0 }] } });
-  };
-  const removeBasicPlusRow = (category: keyof DetailedInventory, i: number) => {
-    const items = c.basicPlusInventory[category].filter((_, idx) => idx !== i);
-    onChange({ ...c, basicPlusInventory: { ...c.basicPlusInventory, [category]: items } });
-  };
-
+  // Basic+ deliberately does NOT have its own storage: its armour/treasure
+  // selection IS Basic's (setBasic, defined above) so switching between
+  // Basic and Basic+ doesn't reset your choice, and its item lists ARE
+  // Detailed's (setDetailedItem etc., below) since they're the same
+  // underlying equipment, just read two different ways. Only the movement
+  // calculation differs - Basic+ stays armour-driven and ignores weight -
+  // which is why setDetailedItem only recomputes weight-based movement
+  // when Detailed itself is the active mode.
   const detailedTotal = coinWeight + (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
     .reduce((sum, k) => sum + c.detailedInventory[k].reduce((s, item) => s + (item.weight || 0), 0), 0);
   const detailedSpeed = detailedSpeedForWeight(detailedTotal);
@@ -778,9 +797,16 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
   const setDetailedItem = (category: keyof DetailedInventory, i: number, patch: Partial<WeightedItem>) => {
     const items = c.detailedInventory[category].map((it, idx) => (idx === i ? { ...it, ...patch } : it));
     const detailedInventory = { ...c.detailedInventory, [category]: items };
-    const newTotal = coinWeight + (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
-      .reduce((sum, k) => sum + detailedInventory[k].reduce((s, it) => s + (it.weight || 0), 0), 0);
-    applyMovement(detailedSpeedForWeight(newTotal), { detailedInventory });
+    if (c.inventoryMode === "detailed") {
+      const newTotal = coinWeight + (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+        .reduce((sum, k) => sum + detailedInventory[k].reduce((s, it) => s + (it.weight || 0), 0), 0);
+      applyMovement(detailedSpeedForWeight(newTotal), { detailedInventory });
+    } else {
+      onChange({ ...c, detailedInventory });
+    }
+  };
+  const reorderDetailedRow = (category: keyof DetailedInventory, from: number, to: number) => {
+    onChange({ ...c, detailedInventory: { ...c.detailedInventory, [category]: reorder(c.detailedInventory[category], from, to) } });
   };
   const addDetailedRow = (category: keyof DetailedInventory) => {
     onChange({ ...c, detailedInventory: { ...c.detailedInventory, [category]: [...c.detailedInventory[category], { name: "", weight: 0 }] } });
@@ -788,9 +814,13 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
   const removeDetailedRow = (category: keyof DetailedInventory, i: number) => {
     const items = c.detailedInventory[category].filter((_, idx) => idx !== i);
     const detailedInventory = { ...c.detailedInventory, [category]: items };
-    const newTotal = coinWeight + (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
-      .reduce((sum, k) => sum + detailedInventory[k].reduce((s, it) => s + (it.weight || 0), 0), 0);
-    applyMovement(detailedSpeedForWeight(newTotal), { detailedInventory });
+    if (c.inventoryMode === "detailed") {
+      const newTotal = coinWeight + (["equipment", "weaponsArmour", "magicItems", "treasure"] as const)
+        .reduce((sum, k) => sum + detailedInventory[k].reduce((s, it) => s + (it.weight || 0), 0), 0);
+      applyMovement(detailedSpeedForWeight(newTotal), { detailedInventory });
+    } else {
+      onChange({ ...c, detailedInventory });
+    }
   };
 
   const setUnenc = (v: string) => onChange({ ...c, itemBasedInventory: { ...c.itemBasedInventory, unencumbering: v } });
@@ -811,17 +841,6 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
     { key: "magicItems", title: "Magic Items", placeholder: "Magic Item" },
     { key: "treasure", title: "Treasure", placeholder: "Gem, Jewelry, Potion..." },
   ];
-
-  const coinsRow = (
-    <div className="coins-mini-row">
-      {(["pp", "gp", "ep", "sp", "cp"] as const).map((k) => (
-        <div className="coins-mini-cell" key={k}>
-          <label>{k.toUpperCase()}</label>
-          <input type="number" value={c.coins[k]} disabled={!canEdit} onChange={(e) => setCoins(k, Number(e.target.value) || 0)} />
-        </div>
-      ))}
-    </div>
-  );
 
   return (
     <div className="inventory-wrap">
@@ -860,63 +879,68 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
               ({Math.round(BASIC_MOVEMENT[c.basicInventory.armourType][c.basicInventory.carryingTreasure ? "with" : "without"] / 3)}')
             </span>
           </div>
+          <div className="weight-total">
+            <span className="weight-total-num">Total Coins: {coinWeight}</span>
+          </div>
         </div>
       )}
       {c.inventoryMode === "basic-plus" && (
         <div className="inventory-status-row">
           <div className="armour-toggle">
             {(["unarmoured", "light", "heavy"] as const).map((a) => (
-              <button key={a} className={`armour-btn ${c.basicPlusInventory.armourType === a ? "active" : ""}`}
-                disabled={!canEdit} onClick={() => setBasicPlusArmour("armourType", a)}>
+              <button key={a} className={`armour-btn ${c.basicInventory.armourType === a ? "active" : ""}`}
+                disabled={!canEdit} onClick={() => setBasic("armourType", a)}>
                 {a.charAt(0).toUpperCase() + a.slice(1)}
               </button>
             ))}
           </div>
           <label className="treasure-check">
-            <input type="checkbox" checked={c.basicPlusInventory.carryingTreasure} disabled={!canEdit}
-              onChange={(e) => setBasicPlusArmour("carryingTreasure", e.target.checked)} />
+            <input type="checkbox" checked={c.basicInventory.carryingTreasure} disabled={!canEdit}
+              onChange={(e) => setBasic("carryingTreasure", e.target.checked)} />
             With Treasure
           </label>
           <div className="weight-total">
             <span className="weight-total-speed">
-              &#8594; {BASIC_MOVEMENT[c.basicPlusInventory.armourType][c.basicPlusInventory.carryingTreasure ? "with" : "without"]}'
-              ({Math.round(BASIC_MOVEMENT[c.basicPlusInventory.armourType][c.basicPlusInventory.carryingTreasure ? "with" : "without"] / 3)}')
+              &#8594; {BASIC_MOVEMENT[c.basicInventory.armourType][c.basicInventory.carryingTreasure ? "with" : "without"]}'
+              ({Math.round(BASIC_MOVEMENT[c.basicInventory.armourType][c.basicInventory.carryingTreasure ? "with" : "without"] / 3)}')
             </span>
           </div>
           <div className="weight-total">
-            <span className="weight-total-num">{basicPlusTotal} cn</span>
-            <span className="weight-total-speed">weight (reference only)</span>
+            <span className="weight-total-num">Total Coins: {detailedTotal}</span>
           </div>
         </div>
       )}
       {c.inventoryMode === "detailed" && (
         <div className="inventory-status-row">
           <div className={`weight-total ${detailedTotal > 1600 ? "overloaded" : ""}`}>
-            <span className="weight-total-num">{detailedTotal} cn</span>
+            <span className="weight-total-num">Total Weight: {detailedTotal} coins</span>
             <span className="weight-total-speed">{detailedTotal > 1600 ? "Can't move" : `\u2192 ${detailedSpeed}' (${Math.round(detailedSpeed / 3)}')`}</span>
           </div>
-          <table className="coin-ref-table">
-            <thead><tr><th>Coins</th><th>Rate</th></tr></thead>
-            <tbody>
-              {[
-                { max: 400, rate: "120' (40')" },
-                { max: 600, rate: "90' (30')" },
-                { max: 800, rate: "60' (20')" },
-                { max: 1600, rate: "30' (10')" },
-              ].map(({ max, rate }, i, arr) => {
-                const min = i === 0 ? 0 : arr[i - 1].max;
-                const isCurrent = detailedTotal > min && detailedTotal <= max;
-                return (
-                  <tr key={max} className={isCurrent ? "current" : ""}>
-                    <td>Up to {max}</td><td>{rate}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="coin-ref-row">
+            <span className="coin-ref-label">Up to</span>
+            {[
+              { max: 400, rate: "120' (40')" },
+              { max: 600, rate: "90' (30')" },
+              { max: 800, rate: "60' (20')" },
+              { max: 1600, rate: "30' (10')" },
+            ].map(({ max, rate }, i, arr) => {
+              const min = i === 0 ? 0 : arr[i - 1].max;
+              const isCurrent = detailedTotal > min && detailedTotal <= max;
+              return (
+                <span key={max} className={`coin-ref-cell ${isCurrent ? "current" : ""}`}>{max} / {rate}</span>
+              );
+            })}
+          </div>
         </div>
       )}
-      {(c.inventoryMode === "basic" || c.inventoryMode === "basic-plus" || c.inventoryMode === "detailed") && coinsRow}
+      {c.inventoryMode === "item" && (
+        <div className="inventory-status-row">
+          <div className="weight-total">
+            <span className="weight-total-num">Total Coins: {coinWeight}</span>
+            <span className="weight-total-speed">&#8594; ~{Math.ceil(coinWeight / 100) || 0} packed slot{Math.ceil(coinWeight / 100) === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+      )}
 
       {c.inventoryMode === "basic" && (
         <>
@@ -942,59 +966,19 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
         </>
       )}
 
-      {c.inventoryMode === "basic-plus" && (
+      {(c.inventoryMode === "basic-plus" || c.inventoryMode === "detailed") && (
         <>
-          <Caption>Movement is still set by armour worn and whether you're carrying treasure, same as Basic - these lists (and their weights) are for reference only and don't change your speed. Weight is optional; leave it at 0 if you don't want to bother with it.</Caption>
+          {c.inventoryMode === "basic-plus" && (
+            <Caption>Movement is still set by armour worn and whether you're carrying treasure, same as Basic - these lists (and their weights) are shared with Detailed and are for reference here; they don't change your speed. Weight is optional; leave it at 0 if you don't want to bother with it.</Caption>
+          )}
           <div className="inv-grid">
             {detailedBoxes.map(({ key, title, placeholder }) => (
-              <div className="inv-box" key={key}>
-                <h4>{title}</h4>
-                <div className="weighted-list">
-                  <div className="weighted-row weighted-head">
-                    <span className="caption" style={{ margin: 0 }}>Item</span>
-                    <span className="caption" style={{ margin: 0 }}>Wt (cn)</span>
-                  </div>
-                  {c.basicPlusInventory[key].map((item, i) => (
-                    <div className="weighted-row" key={i}>
-                      <input className="weighted-name" value={item.name} placeholder={placeholder} disabled={!canEdit}
-                        onChange={(e) => setBasicPlusItem(key, i, { name: e.target.value })} />
-                      <input className="weighted-weight" type="number" value={item.weight} disabled={!canEdit}
-                        onChange={(e) => setBasicPlusItem(key, i, { weight: Number(e.target.value) || 0 })} />
-                      {canEdit && <button className="weighted-remove" onClick={() => removeBasicPlusRow(key, i)}>&times;</button>}
-                    </div>
-                  ))}
-                  {canEdit && <button className="btn text btn-add" onClick={() => addBasicPlusRow(key)}>+ Item</button>}
-                </div>
-              </div>
+              <WeightedBox key={key} category={key} title={title} placeholder={placeholder}
+                items={c.detailedInventory[key]} canEdit={canEdit}
+                onSet={setDetailedItem} onAdd={addDetailedRow} onRemove={removeDetailedRow} onReorder={reorderDetailedRow} />
             ))}
           </div>
         </>
-      )}
-
-      {c.inventoryMode === "detailed" && (
-        <div className="inv-grid">
-          {detailedBoxes.map(({ key, title, placeholder }) => (
-            <div className="inv-box" key={key}>
-              <h4>{title}</h4>
-              <div className="weighted-list">
-                <div className="weighted-row weighted-head">
-                  <span className="caption" style={{ margin: 0 }}>Item</span>
-                  <span className="caption" style={{ margin: 0 }}>Wt (cn)</span>
-                </div>
-                {c.detailedInventory[key].map((item, i) => (
-                  <div className="weighted-row" key={i}>
-                    <input className="weighted-name" value={item.name} placeholder={placeholder} disabled={!canEdit}
-                      onChange={(e) => setDetailedItem(key, i, { name: e.target.value })} />
-                    <input className="weighted-weight" type="number" value={item.weight} disabled={!canEdit}
-                      onChange={(e) => setDetailedItem(key, i, { weight: Number(e.target.value) || 0 })} />
-                    {canEdit && <button className="weighted-remove" onClick={() => removeDetailedRow(key, i)}>&times;</button>}
-                  </div>
-                ))}
-                {canEdit && <button className="btn text btn-add" onClick={() => addDetailedRow(key)}>+ Item</button>}
-              </div>
-            </div>
-          ))}
-        </div>
       )}
 
       {c.inventoryMode === "item" && (
@@ -1050,7 +1034,6 @@ function InventorySection({ character: c, canEdit, onChange, strTags }: {
           </table>
           <Caption>All other equipment, packed into sacks and backpacks. Retrieving a packed item in combat optionally takes one round.</Caption>
           <Caption>STR modifier (optional, honor system - not enforced here): a STR-tagged row can only be used if your STR meets that threshold.</Caption>
-          <Caption>Coins: {coinWeight} carried &mdash; occupies about {Math.ceil(coinWeight / 100) || 0} packed slot{Math.ceil(coinWeight / 100) === 1 ? "" : "s"} (100 coins/gems = 1 item; honor system, not tracked as its own row above).</Caption>
         </div>
       )}
     </div>
@@ -1149,6 +1132,54 @@ function DragHandle() {
     <span className="drag-handle" data-tip="Drag to reorder">
       <svg viewBox="0 0 10 16" width="10" height="16"><circle cx="2.5" cy="2.5" r="1.4" /><circle cx="7.5" cy="2.5" r="1.4" /><circle cx="2.5" cy="8" r="1.4" /><circle cx="7.5" cy="8" r="1.4" /><circle cx="2.5" cy="13.5" r="1.4" /><circle cx="7.5" cy="13.5" r="1.4" /></svg>
     </span>
+  );
+}
+
+function WeightedBox({ category, title, placeholder, items, canEdit, onSet, onAdd, onRemove, onReorder }: {
+  category: keyof DetailedInventory; title: string; placeholder: string; items: WeightedItem[]; canEdit: boolean;
+  onSet: (category: keyof DetailedInventory, i: number, patch: Partial<WeightedItem>) => void;
+  onAdd: (category: keyof DetailedInventory) => void;
+  onRemove: (category: keyof DetailedInventory, i: number) => void;
+  onReorder: (category: keyof DetailedInventory, from: number, to: number) => void;
+}) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const dropItem = (i: number) => {
+    if (dragIndex === null || dragIndex === i) { setOverIndex(null); return; }
+    onReorder(category, dragIndex, i);
+    setDragIndex(null);
+    setOverIndex(null);
+  };
+
+  return (
+    <div className="inv-box">
+      <h4>{title}</h4>
+      <div className="weighted-list">
+        <div className="weighted-row weighted-head">
+          <span className="mem-head-spacer" />
+          <span className="caption" style={{ margin: 0, flex: 1 }}>Item</span>
+          <span className="caption" style={{ margin: 0, width: 60 }}>Wt (cn)</span>
+        </div>
+        {items.map((item, i) => (
+          <div className={`weighted-row ${dragIndex === i ? "dragging" : ""} ${overIndex === i && dragIndex !== i ? "drag-over" : ""}`} key={i}
+            onDragOver={(e) => { if (!canEdit) return; e.preventDefault(); setOverIndex(i); }}
+            onDragLeave={() => setOverIndex((cur) => (cur === i ? null : cur))}
+            onDrop={() => canEdit && dropItem(i)}>
+            {canEdit ? (
+              <span draggable onDragStart={() => setDragIndex(i)} onDragEnd={() => { setDragIndex(null); setOverIndex(null); }}>
+                <DragHandle />
+              </span>
+            ) : <span className="mem-head-spacer" />}
+            <input className="weighted-name" value={item.name} placeholder={placeholder} disabled={!canEdit}
+              onChange={(e) => onSet(category, i, { name: e.target.value })} />
+            <input className="weighted-weight" type="number" value={item.weight} disabled={!canEdit}
+              onChange={(e) => onSet(category, i, { weight: Number(e.target.value) || 0 })} />
+            {canEdit && <button className="weighted-remove" onClick={() => onRemove(category, i)}>&times;</button>}
+          </div>
+        ))}
+        {canEdit && <button className="btn text btn-add" onClick={() => onAdd(category)}>+ Item</button>}
+      </div>
+    </div>
   );
 }
 

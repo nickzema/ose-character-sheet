@@ -51,15 +51,6 @@ export interface DetailedInventory {
   treasure: WeightedItem[];
 }
 
-export interface BasicPlusInventory {
-  armourType: ArmourType;
-  carryingTreasure: boolean;
-  equipment: WeightedItem[];
-  weaponsArmour: WeightedItem[];
-  magicItems: WeightedItem[];
-  treasure: WeightedItem[];
-}
-
 export interface ItemBasedInventory {
   unencumbering: string;
   equipped: string[]; // fixed-length slot list
@@ -122,7 +113,6 @@ export interface Character {
 
   inventoryMode: InventoryMode;
   basicInventory: BasicInventory;
-  basicPlusInventory: BasicPlusInventory;
   detailedInventory: DetailedInventory;
   itemBasedInventory: ItemBasedInventory;
   coins: Coins;
@@ -159,7 +149,7 @@ export function blankCharacter(id: string, ownerId: string): Character {
     portrait: null,
     linkedTokenId: null,
 
-    name: "New Character",
+    name: "",
     player: "",
     className: "",
     title: "",
@@ -196,14 +186,6 @@ export function blankCharacter(id: string, ownerId: string): Character {
 
     inventoryMode: "basic",
     basicInventory: { armourType: "unarmoured", carryingTreasure: false, equipment: "", weaponsArmour: "", magicItems: "", treasure: "" },
-    basicPlusInventory: {
-      armourType: "unarmoured",
-      carryingTreasure: false,
-      equipment: [{ name: "", weight: 0 }],
-      weaponsArmour: [{ name: "", weight: 0 }],
-      magicItems: [{ name: "", weight: 0 }],
-      treasure: [{ name: "", weight: 0 }],
-    },
     detailedInventory: {
       equipment: [{ name: "", weight: 0 }],
       weaponsArmour: [{ name: "", weight: 0 }],
@@ -273,6 +255,19 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
     spellbookUnlockedLevels = spellbook.reduce((max, lvl, i) => (lvl.length ? i + 1 : max), 1);
   }
 
+  // Old schema (briefly shipped) kept Basic+'s items separate from
+  // Detailed's; they're the same data now. If someone already has old
+  // basicPlusInventory data and Detailed's own list for that category is
+  // still blank, use the old data rather than silently losing it.
+  const oldBasicPlus = (raw as unknown as { basicPlusInventory?: DetailedInventory }).basicPlusInventory;
+  const isBlank = (items?: WeightedItem[]) => !items?.length || items.every((it) => !it.name.trim());
+  const mergedDetailed: DetailedInventory = {
+    equipment: isBlank(raw.detailedInventory?.equipment) && !isBlank(oldBasicPlus?.equipment) ? oldBasicPlus!.equipment : (raw.detailedInventory?.equipment ?? blank.detailedInventory.equipment),
+    weaponsArmour: isBlank(raw.detailedInventory?.weaponsArmour) && !isBlank(oldBasicPlus?.weaponsArmour) ? oldBasicPlus!.weaponsArmour : (raw.detailedInventory?.weaponsArmour ?? blank.detailedInventory.weaponsArmour),
+    magicItems: isBlank(raw.detailedInventory?.magicItems) && !isBlank(oldBasicPlus?.magicItems) ? oldBasicPlus!.magicItems : (raw.detailedInventory?.magicItems ?? blank.detailedInventory.magicItems),
+    treasure: isBlank(raw.detailedInventory?.treasure) && !isBlank(oldBasicPlus?.treasure) ? oldBasicPlus!.treasure : (raw.detailedInventory?.treasure ?? blank.detailedInventory.treasure),
+  };
+
   return {
     ...blank,
     ...raw,
@@ -280,20 +275,7 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
     abilities: { ...blank.abilities, ...raw.abilities },
     saves: { ...blank.saves, ...raw.saves },
     basicInventory: { ...blank.basicInventory, ...oldStandard, ...raw.basicInventory },
-    basicPlusInventory: {
-      armourType: raw.basicPlusInventory?.armourType ?? blank.basicPlusInventory.armourType,
-      carryingTreasure: raw.basicPlusInventory?.carryingTreasure ?? blank.basicPlusInventory.carryingTreasure,
-      equipment: raw.basicPlusInventory?.equipment ?? blank.basicPlusInventory.equipment,
-      weaponsArmour: raw.basicPlusInventory?.weaponsArmour ?? blank.basicPlusInventory.weaponsArmour,
-      magicItems: raw.basicPlusInventory?.magicItems ?? blank.basicPlusInventory.magicItems,
-      treasure: raw.basicPlusInventory?.treasure ?? blank.basicPlusInventory.treasure,
-    },
-    detailedInventory: {
-      equipment: raw.detailedInventory?.equipment ?? blank.detailedInventory.equipment,
-      weaponsArmour: raw.detailedInventory?.weaponsArmour ?? blank.detailedInventory.weaponsArmour,
-      magicItems: raw.detailedInventory?.magicItems ?? blank.detailedInventory.magicItems,
-      treasure: raw.detailedInventory?.treasure ?? blank.detailedInventory.treasure,
-    },
+    detailedInventory: mergedDetailed,
     itemBasedInventory: {
       unencumbering: raw.itemBasedInventory?.unencumbering ?? blank.itemBasedInventory.unencumbering,
       // Resize to the current row counts (Equipped 9, Packed 19) rather
