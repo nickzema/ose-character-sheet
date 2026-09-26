@@ -688,7 +688,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
       </div>
 
       <div className="brand-footer">
-        <img src="/zemaria-icon.png" alt="" />
+        <span className="brand-mark" aria-hidden="true" />
         <span>Another Zemaria product</span>
       </div>
     </div>

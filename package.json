@@ -12,7 +12,8 @@
   "dependencies": {
     "@owlbear-rodeo/sdk": "^3.1.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "zemaria-ui": "github:nickzema/zemaria-ui#v1.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

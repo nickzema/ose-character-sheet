@@ -7,6 +7,7 @@ import { syncLinkedToken } from "./statBubbles";
 import CharacterList from "./CharacterList";
 import CharacterSheet from "./CharacterSheet";
 import AssignPortraitPopover from "./AssignPortraitPopover";
+import "zemaria-ui/zemaria.css";
 import "./styles.css";
 
 function useAssignParams() {

@@ -1,89 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Oswald:wght@500;600;700&family=Source+Serif+4:ital,wght@0,400;0,700;1,400;1,600&display=swap');
+/* Shared Zemaria styles (tokens, fonts, buttons, chips, toggles, tables, footer) live in
+   zemaria-ui/zemaria.css, imported before this file. This file is Character Sheet-specific. */
 
-:root{
-  --ink: #111111;
-  --paper: #FCFBF8;
-  --chip-text: #F7F5EE;
-  --caption: #3a3a3a;
-  --hp-dead: #a11414;
-}
-
-* { box-sizing: border-box; }
-html, body, #root { margin:0; padding:0; height:100%; }
-body{
-  font-family: 'Source Serif 4', Georgia, serif;
-  color: var(--ink);
-  background-color: #C7CCD1;
-  background-image:
-    linear-gradient(#b3b9bf 1px, transparent 1px),
-    linear-gradient(90deg, #b3b9bf 1px, transparent 1px);
-  background-size: 16px 16px;
-}
 .app{ min-height:100vh; }
-
-/* Delayed tooltips - custom (not the native title attribute) so we control
-   the hover delay: instant hide, ~0.5s delay before a tooltip appears. */
-[data-tip]{ position:relative; }
-[data-tip]::after{
-  content: attr(data-tip);
-  position:absolute; bottom:100%; left:50%; transform:translateX(-50%) translateY(-6px);
-  background:var(--ink); color:var(--chip-text); font-family:'Oswald',sans-serif;
-  font-size:11px; font-weight:500; letter-spacing:0.02em; text-transform:none;
-  padding:5px 8px; white-space:nowrap; border-radius:3px; pointer-events:none;
-  opacity:0; z-index:50; transition: opacity 0s linear 0s;
-}
-[data-tip]:hover::after{ opacity:1; transition: opacity 0.15s ease-in 0.5s; }
 .loading{ padding:24px; text-align:center; color:var(--caption); }
 .save-warning{
   background:#a15b00; color:#fff; font-family:'Oswald',sans-serif; font-size:12px;
   padding:8px 12px; text-align:center;
 }
-
-h3{
-  font-family:'Alfa Slab One', serif; font-weight:400; font-size:19px;
-  text-transform:uppercase; margin:0 0 8px;
-}
-.caption{
-  font-family:'Source Serif 4', serif; font-style:italic; font-size:11px;
-  color:var(--caption); line-height:1.3; margin:2px 0 8px;
-}
 .row-2{ display:flex; gap:8px; min-width:0; }
 .row-2 > *{ flex:1; min-width:0; }
-
-.btn{
-  font-family:'Oswald',sans-serif; font-weight:600; font-size:12px; letter-spacing:0.03em;
-  text-transform:uppercase; background:var(--ink); color:var(--chip-text); border:none;
-  padding:8px 10px; cursor:pointer;
-}
-.btn.text{
-  background:none; border:none; color:var(--ink); font-weight:600; font-size:12px;
-  letter-spacing:0.03em; text-transform:uppercase; padding:4px 0; cursor:pointer;
-  font-family:'Oswald',sans-serif;
-}
-.btn.text.danger{ color:var(--hp-dead); }
 .btn-add{ display:block; width:100%; text-align:center; }
-
-/* Chip + box component */
-.chip-row{ display:flex; border:1.5px solid var(--ink); margin-bottom:1px; min-width:0; }
-.chip{
-  background:var(--ink); color:var(--chip-text); font-family:'Oswald',sans-serif;
-  font-weight:600; font-size:12px; letter-spacing:0.03em; text-transform:uppercase;
-  padding:6px 8px; display:flex; align-items:center; flex-shrink:0; min-width:46px; justify-content:center;
-  border:none;
-}
-button.chip{ cursor:pointer; }
-.chip.rollable{
-  position:relative; z-index:1; transition: box-shadow 0.15s ease, transform 0.15s ease;
-}
-.chip.rollable:hover{
-  box-shadow: 0 3px 8px rgba(0,0,0,0.35); transform: translateY(-2px); z-index:3;
-}
-.box{ flex:1; border-left:1.5px solid var(--ink); display:flex; min-width:0; }
-.box input{
-  flex:1; border:none; background:transparent; font-family:'Source Serif 4', serif;
-  font-size:14px; padding:6px 8px; color:var(--ink); min-width:0;
-}
-.box input:disabled{ color:var(--ink); opacity:1; -webkit-text-fill-color:var(--ink); }
 .box-unit{
   font-family:'Oswald', sans-serif; font-size:11px; color:var(--caption); align-self:center;
   padding-right:8px; white-space:nowrap;
@@ -103,9 +29,6 @@ textarea.locked{ resize:none; }
 
 /* Party list */
 .list{ padding:16px 18px 20px; }
-.list-toolbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
-.list-toolbar h2{ font-family:'Alfa Slab One', serif; font-size:19px; text-transform:uppercase; margin:0; }
-.empty-state{ font-family:'Source Serif 4', serif; font-style:italic; color:var(--caption); padding:12px 0; }
 
 .char-row{
   display:flex; align-items:stretch; border:1.5px solid var(--ink); margin-top:-1.5px; cursor:pointer;
@@ -131,21 +54,10 @@ textarea.locked{ resize:none; }
 }
 .hp-box{ font-family:'Oswald',sans-serif; font-size:13px; font-weight:600; color:var(--ink); white-space:nowrap; padding-left:10px; }
 .row-right{ display:flex; align-items:center; gap:10px; }
-.row-delete{
-  width:22px; height:22px; flex-shrink:0; border:1.5px solid var(--ink); background:#FCFBF8;
-  color:var(--hp-dead); font-size:15px; line-height:1; cursor:pointer; padding:0;
-}
-.row-delete:hover{ background:var(--hp-dead); color:#fff; }
-
-.list-toolbar-right{ display:flex; align-items:center; gap:10px; }
 .sheet-topbar-right{ display:flex; align-items:center; gap:12px; }
 
 .hidden-row{ opacity:0.55; }
 .hidden-row:hover{ opacity:0.85; }
-.hidden-badge{
-  font-family:'Oswald',sans-serif; font-size:9px; font-weight:700; letter-spacing:0.05em;
-  background:var(--hp-dead); color:#fff; padding:2px 5px; margin-left:6px; vertical-align:middle;
-}
 .row-hide{
   width:26px; height:22px; flex-shrink:0; border:1.5px solid var(--ink); background:#FCFBF8;
   font-size:12px; line-height:1; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;
@@ -155,15 +67,6 @@ textarea.locked{ resize:none; }
 .row-hide.active:hover{ background:#333; }
 
 .btn.text.hidden-active{ color:var(--hp-dead); }
-
-/* Help tour - a walkthrough that points an arrow at the real element it's
-   describing, rather than a single wall-of-text popover */
-.help-btn{
-  width:22px; height:22px; border-radius:50%; border:1.5px solid var(--ink); background:#FCFBF8;
-  color:var(--ink); font-family:'Oswald',sans-serif; font-weight:700; font-size:12px; cursor:pointer;
-  padding:0; line-height:1; display:flex; align-items:center; justify-content:center; flex-shrink:0;
-}
-.help-btn:hover{ background:var(--ink); color:var(--chip-text); }
 .tour-overlay{ position:fixed; inset:0; z-index:1500; background:rgba(20,18,14,0.35); }
 .tour-highlight{
   position:fixed; border:2.5px solid #a11414; border-radius:4px;
@@ -344,31 +247,11 @@ textarea.locked{ resize:none; }
 }
 .inv-tab + .inv-tab{ border-left:1.5px solid var(--ink); }
 .inv-tab.active{ background:var(--ink); color:var(--chip-text); }
-
-/* Shared status-bar parts: every control and readout in every mode is the
-   same height, so the row looks identical from Basic through Item-Based. */
-.seg-toggle{ display:flex; align-items:stretch; height:32px; border:1.5px solid var(--ink); background:var(--paper); }
-.seg-btn, .seg-label{
-  display:flex; align-items:center; font-family:'Oswald',sans-serif; font-weight:600; font-size:11px;
-  text-transform:uppercase; letter-spacing:0.03em; background:var(--paper); color:var(--ink);
-  border:none; padding:0 10px; white-space:nowrap;
-}
-.seg-btn{ cursor:pointer; }
-.seg-btn.seg-static{ cursor:default; }
-.seg-btn + .seg-btn, .seg-label + .seg-btn{ border-left:1.5px solid var(--ink); }
-.seg-btn.active{ background:var(--ink); color:var(--chip-text); }
-.seg-label{ color:var(--caption); font-weight:500; }
 .treasure-check{
   display:flex; align-items:center; gap:6px; height:32px; font-family:'Oswald', sans-serif; font-size:11.5px;
   text-transform:uppercase; letter-spacing:0.03em; cursor:pointer;
 }
 .treasure-check input{ width:14px; height:14px; accent-color:var(--ink); cursor:pointer; }
-.status-box{
-  display:flex; align-items:center; gap:7px; height:32px; padding:0 10px; border:1.5px solid var(--ink);
-  background:var(--paper); font-family:'Oswald', sans-serif; font-size:12px; white-space:nowrap;
-}
-.status-label{ color:var(--caption); text-transform:uppercase; font-size:10.5px; font-weight:500; letter-spacing:0.03em; }
-.status-value{ font-weight:700; }
 .status-note{ color:var(--caption); font-weight:500; }
 .status-box.coins{ width:190px; justify-content:space-between; }
 .status-box.speed{ width:140px; justify-content:space-between; }
@@ -441,19 +324,7 @@ textarea.locked{ resize:none; }
 .feature-check input{ width:14px; height:14px; accent-color:var(--ink); cursor:pointer; }
 .feature-block{ margin-top:10px; }
 .feature-block h4{ font-family:'Oswald',sans-serif; font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:0.04em; margin:0 0 6px; }
-
-.compact-row{ display:flex; gap:4px; }
-.compact-cell{ flex:1; min-width:0; border:1.5px solid var(--ink); text-align:center; }
-.compact-chip{
-  background:var(--ink); color:var(--chip-text); font-family:'Oswald',sans-serif;
-  font-weight:600; font-size:9px; letter-spacing:0.01em; line-height:1.25; padding:5px 3px; width:100%; border:none;
-}
-.compact-chip.rollable{
-  cursor:pointer; position:relative; z-index:1; transition: box-shadow 0.15s ease, transform 0.15s ease;
-}
-.compact-chip.rollable:hover{ box-shadow: 0 3px 8px rgba(0,0,0,0.35); transform: translateY(-2px); z-index:3; }
 .roll-trigger{ display:flex; align-items:center; gap:6px; }
-.compact-val{ font-family:'Source Serif 4', serif; font-size:12px; padding:4px 2px; white-space:nowrap; }
 .table-toggle{
   font-family:'Oswald',sans-serif; font-weight:600; font-size:11px; text-transform:uppercase;
   letter-spacing:0.03em; background:var(--paper); color:var(--ink); border:1.5px solid var(--ink);
@@ -461,11 +332,6 @@ textarea.locked{ resize:none; }
 }
 .table-toggle:hover{ background:var(--ink); color:var(--chip-text); }
 .turn-table .current-row td{ font-weight:700; }
-
-.turn-table{ border-collapse:collapse; width:100%; font-size:11px; margin-top:4px; }
-.turn-table th, .turn-table td{ border:1px solid var(--ink); text-align:center; padding:3px 2px; }
-.turn-table th{ background:var(--ink); color:var(--chip-text); font-family:'Oswald',sans-serif; font-weight:600; }
-.turn-table tr:nth-child(even) td{ background:rgba(0,0,0,0.05); }
 
 /* Memorized Spells (Cleric + Magic-User) */
 .memorized-list{ display:flex; flex-direction:column; gap:4px; margin-bottom:6px; }
@@ -555,15 +421,3 @@ body.is-dragging [data-tip]::after{ display:none !important; }
   font-size:11px; padding:3px 0; color:var(--ink);
 }
 .assign-empty, .assign-done{ font-family:'Source Serif 4', serif; font-style:italic; color:var(--caption); }
-
-/* Brand footer */
-.brand-footer{
-  display:flex; align-items:center; justify-content:center; gap:6px;
-  margin-top:22px; padding-top:12px; border-top:1px solid rgba(17,17,17,0.15);
-  opacity:0.55;
-}
-.brand-footer img{ width:16px; height:16px; }
-.brand-footer span{
-  font-family:'Oswald',sans-serif; font-weight:600; font-size:10px; text-transform:uppercase;
-  letter-spacing:0.06em; color:var(--ink);
-}
