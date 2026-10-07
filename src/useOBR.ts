@@ -1,24 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import type { Character } from "./types";
-import { syncLinkedToken } from "./statBubbles";
-import {
-  CHAR_PREFIX,
-  INDEX_KEY,
-  composeRoster,
-  mergeInto,
-  migrateLegacyRoster,
-  nextRev,
-  parseIndex,
-  type StoredCharacter,
-  type StoredIndex,
-} from "./rosterStore";
+import { healCharacter, type Character } from "./types";
 
-// Keystroke-level edits (typing a name, notes, inventory items) are held
-// locally and written to the room after a short pause, so typing a sentence
-// is one room write instead of one per keypress. Adding, deleting, and GM
-// visibility toggles still save immediately.
-const EDIT_DEBOUNCE_MS = 400;
+// Legacy: the whole party as one array under a single key. Every edit rewrote
+// all of it, so concurrent edits clobbered each other. Kept only to migrate.
+export const LEGACY_KEY = "com.p4p.ose-character-sheet/roster";
+// Current: one key per character, so an edit only touches that character.
+export const CHAR_PREFIX = "com.p4p.ose-character-sheet/char/";
+export const charKey = (id: string) => CHAR_PREFIX + id;
 
 export interface PlayerInfo {
   id: string;
@@ -46,217 +35,140 @@ export function usePlayer() {
   return player;
 }
 
+export function readRoster(metadata: Record<string, unknown>): Character[] {
+  const out: Character[] = [];
+  for (const [k, v] of Object.entries(metadata)) {
+    if (!k.startsWith(CHAR_PREFIX) || !v || typeof v !== "object") continue;
+    if ((v as { deleted?: boolean }).deleted) continue; // tombstone
+    out.push(healCharacter(v as Partial<Character> & { id: string }));
+  }
+  return out.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+}
+
+// One-time move from the legacy single-array key to per-character keys.
+// Only writes characters that don't already have a key, re-reading the room
+// first, so it can never overwrite newer per-character edits.
+export async function migrateLegacy() {
+  const metadata = await OBR.room.getMetadata();
+  const legacy = metadata[LEGACY_KEY];
+  if (!Array.isArray(legacy)) return;
+  const update: Record<string, unknown> = { [LEGACY_KEY]: null };
+  (legacy as (Partial<Character> & { id: string })[]).forEach((raw, i) => {
+    if (!raw?.id || metadata[charKey(raw.id)]) return;
+    update[charKey(raw.id)] = { ...raw, createdAt: raw.createdAt ?? i, updatedAt: raw.updatedAt ?? 1 };
+  });
+  await OBR.room.setMetadata(update);
+  // If this SDK build doesn't delete a key set to null, empty the old array
+  // instead so it stops eating the room's 16kB budget.
+  const after = await OBR.room.getMetadata();
+  if (Array.isArray(after[LEGACY_KEY]) && (after[LEGACY_KEY] as unknown[]).length) {
+    await OBR.room.setMetadata({ [LEGACY_KEY]: [] });
+  }
+}
+
+// Deleted characters leave a tiny tombstone rather than relying on a key
+// being removed, so a delete reliably reaches every client and a stale
+// echo can't bring the character back.
+function readTombstones(metadata: Record<string, unknown>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [k, v] of Object.entries(metadata)) {
+    if (!k.startsWith(CHAR_PREFIX) || !v || typeof v !== "object") continue;
+    const t = v as { deleted?: boolean; id?: string; updatedAt?: number };
+    if (t.deleted && t.id) out.set(t.id, t.updatedAt ?? 0);
+  }
+  return out;
+}
+
 export function useRoster() {
   const [roster, setRoster] = useState<Character[] | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
+  // Latest local version of every character, including edits whose write
+  // hasn't been echoed back yet. An incoming room value only replaces a
+  // local one if it's strictly newer (updatedAt), so a late echo of an older
+  // write can never revert what was just typed.
+  const localRef = useRef<Map<string, Character>>(new Map());
+  const deletedRef = useRef<Set<string>>(new Set());
+  const unseenRef = useRef<Set<string>>(new Set()); // created here, not yet seen in the room
 
-  // Local mirror of what we believe the room holds. Every character lives
-  // under its own metadata key (see rosterStore.ts), so an edit by one
-  // player never rewrites another player's character, and incoming
-  // metadata changes are merged per character: another player's edit shows
-  // up immediately, while our own in-flight write can't be reverted by a
-  // lagging echo of someone else's older write.
-  const charsRef = useRef(new Map<string, StoredCharacter>());
-  const indexRef = useRef<StoredIndex | null>(null);
+  const publish = () =>
+    setRoster([...localRef.current.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)));
 
-  // Edits waiting out the debounce timer, per character, with the pre-edit
-  // state to roll back to if the eventual write fails.
-  const pendingEdits = useRef(new Map<string, { timer: number; previous?: StoredCharacter }>());
-
-  // All room writes go through one queue so they always land in the order
-  // we decided them - overlapping writes (a debounced flush racing a quick
-  // follow-up edit) can't arrive out of order and let an older revision
-  // overwrite a newer one.
-  const writeQueue = useRef<Promise<void>>(Promise.resolve());
-  const enqueue = (job: () => Promise<void>): Promise<void> => {
-    const run = writeQueue.current.then(job, job);
-    writeQueue.current = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
-  };
-
-  const publish = () => {
-    setRoster(composeRoster(indexRef.current, charsRef.current));
-  };
-
-  // Shared tail of every single-character write: portrait-stripping retry
-  // when the room is full, rollback of local state when nothing lands.
-  // Reads the character from charsRef at execution time so a debounced
-  // flush always saves the latest edits, not the ones that started the
-  // timer.
-  const persistCharacter = async (id: string, previous?: StoredCharacter) => {
-    const stored = charsRef.current.get(id);
-    if (!stored) return;
-    try {
-      await OBR.room.setMetadata({ [CHAR_PREFIX + id]: stored });
-      setSaveWarning(null);
-      await syncLinkedToken(stored.character);
-    } catch {
-      // Room metadata is capped (shared across every extension in the
-      // room). Manually-uploaded portraits are stored as data URLs and can
-      // be large, so if the write is rejected we strip portraits that
-      // aren't from a linked token (those are cheap, hosted URLs) and try
-      // again, telling the user why.
-      if (!stored.character.linkedTokenId && stored.character.portrait) {
-        const stripped: StoredCharacter = { rev: nextRev(), character: { ...stored.character, portrait: null } };
-        try {
-          await OBR.room.setMetadata({ [CHAR_PREFIX + id]: stripped });
-          charsRef.current.set(id, stripped);
-          publish();
-          setSaveWarning(
-            "Room storage is full, so manually-uploaded portraits couldn't be saved. Assign a token to a character instead for a portrait that persists."
-          );
-          await syncLinkedToken(stripped.character);
-          return;
-        } catch {
-          // Fall through to the full rollback below.
-        }
-      }
-      if (previous) charsRef.current.set(id, previous);
-      else charsRef.current.delete(id);
-      publish();
-      setSaveWarning("Couldn't save changes - room storage is full. Try removing a portrait or trimming notes.");
+  const merge = (metadata: Record<string, unknown>) => {
+    const incoming = readRoster(metadata);
+    const seen = new Set<string>();
+    for (const [id, at] of readTombstones(metadata)) {
+      const local = localRef.current.get(id);
+      if (local && at >= local.updatedAt) localRef.current.delete(id);
+      deletedRef.current.add(id);
+      unseenRef.current.delete(id);
     }
+    for (const c of incoming) {
+      if (deletedRef.current.has(c.id)) continue;
+      seen.add(c.id);
+      unseenRef.current.delete(c.id);
+      const local = localRef.current.get(c.id);
+      if (!local || c.updatedAt > local.updatedAt) localRef.current.set(c.id, c);
+    }
+    // Removed in the room by someone else (unless it's ours and still in flight).
+    for (const id of [...localRef.current.keys()]) {
+      if (!seen.has(id) && !unseenRef.current.has(id)) localRef.current.delete(id);
+    }
+    publish();
   };
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     OBR.onReady(async () => {
-      await migrateLegacyRoster();
-      const metadata = await OBR.room.getMetadata();
-      mergeInto(metadata, charsRef.current);
-      indexRef.current = parseIndex(metadata);
-      publish();
-      unsubscribe = OBR.room.onMetadataChange((metadata) => {
-        const changed = mergeInto(metadata, charsRef.current);
-        const incomingIndex = parseIndex(metadata);
-        const known = indexRef.current;
-        const roomIds = incomingIndex?.ids ?? known?.ids ?? [];
-        // Character keys the index doesn't know about yet: an in-flight
-        // add of ours, or an index update that lost a race.
-        const extras = [...charsRef.current.keys()].filter((id) => !roomIds.includes(id));
-        const ids = [...roomIds, ...extras];
-        const indexChanged =
-          !known || known.ids.length !== ids.length || known.ids.some((id, i) => id !== ids[i]);
-        indexRef.current = { rev: incomingIndex?.rev ?? 0, ids };
-        // Skip the re-render entirely when neither the characters nor the
-        // index changed - other extensions write room metadata constantly,
-        // and none of that should touch this sheet.
-        if (changed || indexChanged) publish();
-      });
+      try { await migrateLegacy(); } catch { /* retry next load */ }
+      merge(await OBR.room.getMetadata());
+      unsubscribe = OBR.room.onMetadataChange((metadata) => merge(metadata));
     });
     return () => unsubscribe?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Immediate save, for actions that must land right away: adding a
-  // character, GM visibility toggles. Compares by object identity - the
-  // app reuses unchanged character objects when mapping over the roster -
-  // and writes only the characters that actually changed. Deletion goes
-  // through removeCharacter, which never races with a stale local snapshot.
-  const saveRoster = async (next: Character[]) => {
-    const jobs: Promise<void>[] = [];
-    const addedIds: string[] = [];
-
-    for (const c of next) {
-      const current = charsRef.current.get(c.id);
-      if (current && current.character === c) continue;
-      const stored: StoredCharacter = { rev: nextRev(), character: c };
-      charsRef.current.set(c.id, stored);
-      jobs.push(enqueue(() => persistCharacter(c.id, current)));
-      if (!current) addedIds.push(c.id);
-    }
-
-    if (addedIds.length > 0) {
-      const index: StoredIndex = {
-        rev: nextRev(),
-        ids: [...(indexRef.current?.ids ?? []), ...addedIds],
-      };
-      indexRef.current = index;
-      jobs.push(
-        enqueue(async () => {
-          try {
-            await OBR.room.setMetadata({ [INDEX_KEY]: index });
-            setSaveWarning(null);
-          } catch {
-            setSaveWarning("Couldn't save changes - room storage is full. Try removing a portrait or trimming notes.");
-          }
-        })
-      );
-    }
-
-    if (jobs.length === 0) return;
-    publish();
-    await Promise.all(jobs);
-  };
-
-  // Debounced save for keystroke-level edits. The optimistic local update
-  // is instant; the room write happens once typing pauses.
-  const updateCharacter = (updated: Character) => {
-    let pending = pendingEdits.current.get(updated.id);
-    if (!pending) {
-      pending = { timer: 0, previous: charsRef.current.get(updated.id) };
-      pendingEdits.current.set(updated.id, pending);
-    } else {
-      window.clearTimeout(pending.timer);
-    }
-    charsRef.current.set(updated.id, { rev: nextRev(), character: updated });
-    publish();
-    const entry = pending;
-    entry.timer = window.setTimeout(() => {
-      pendingEdits.current.delete(updated.id);
-      void enqueue(() => persistCharacter(updated.id, entry.previous));
-    }, EDIT_DEBOUNCE_MS);
-  };
-
-  const removeCharacter = async (id: string) => {
-    const pending = pendingEdits.current.get(id);
-    if (pending) {
-      window.clearTimeout(pending.timer);
-      pendingEdits.current.delete(id);
-    }
-    const prevIndex = indexRef.current;
-    const prevChar = charsRef.current.get(id);
-    const index: StoredIndex = {
-      rev: nextRev(),
-      ids: (prevIndex?.ids ?? []).filter((x) => x !== id),
-    };
-    charsRef.current.delete(id);
-    indexRef.current = index;
-    publish();
-    await enqueue(async () => {
-      try {
-        // One atomic call: clear the character's key and update the index
-        // together, so no other client ever sees the index point at a
-        // character that no longer exists (or vice versa).
-        await OBR.room.setMetadata({ [CHAR_PREFIX + id]: null, [INDEX_KEY]: index });
-        setSaveWarning(null);
-      } catch {
-        if (prevChar) charsRef.current.set(id, prevChar);
-        indexRef.current = prevIndex;
-        publish();
-        setSaveWarning("Couldn't save changes - room storage is full.");
+  const write = async (c: Character) => {
+    try {
+      await OBR.room.setMetadata({ [charKey(c.id)]: c });
+      setSaveWarning(null);
+    } catch {
+      // Room metadata is capped (16kB total, shared by every extension in
+      // the room). Retry without a manually-uploaded portrait, which is by
+      // far the largest field.
+      if (c.portrait && !c.linkedTokenId) {
+        const stripped = { ...c, portrait: null };
+        try {
+          await OBR.room.setMetadata({ [charKey(c.id)]: stripped });
+          localRef.current.set(c.id, stripped);
+          publish();
+          setSaveWarning("Room storage is full, so manually-uploaded portraits couldn't be saved. Assign a token to a character instead for a portrait that persists.");
+          return;
+        } catch { /* fall through */ }
       }
-    });
+      setSaveWarning("NOT SAVED - room storage is full. Changes will be lost on refresh. Remove a portrait or trim notes.");
+    }
   };
 
-  // If the panel closes while edits are still waiting out the debounce
-  // timer, push them out best-effort rather than losing the last few
-  // keystrokes.
-  const flushPendingRef = useRef<() => void>(() => undefined);
-  useEffect(() => {
-    flushPendingRef.current = () => {
-      for (const [id, pending] of [...pendingEdits.current]) {
-        window.clearTimeout(pending.timer);
-        pendingEdits.current.delete(id);
-        void enqueue(() => persistCharacter(id, pending.previous));
-      }
-    };
-    const onBeforeUnload = () => flushPendingRef.current();
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, []);
+  const saveCharacter = (next: Character, isNew = false) => {
+    const prev = localRef.current.get(next.id);
+    const stamped = { ...next, updatedAt: Math.max(Date.now(), (prev?.updatedAt ?? 0) + 1) };
+    localRef.current.set(stamped.id, stamped);
+    if (isNew) unseenRef.current.add(stamped.id);
+    publish();
+    return write(stamped);
+  };
 
-  return { roster, saveRoster, updateCharacter, removeCharacter, saveWarning };
+  const deleteCharacter = async (id: string) => {
+    deletedRef.current.add(id);
+    localRef.current.delete(id);
+    unseenRef.current.delete(id);
+    publish();
+    try {
+      await OBR.room.setMetadata({ [charKey(id)]: { id, deleted: true, updatedAt: Date.now() } });
+    } catch {
+      setSaveWarning("Couldn't delete - try again.");
+    }
+  };
+
+  return { roster, saveCharacter, deleteCharacter, saveWarning };
 }

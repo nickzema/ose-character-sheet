@@ -72,6 +72,8 @@ export interface Character {
   ownerId: string; // OBR player id who created this character
   type: "PC" | "NPC";
   hidden: boolean; // GM-only: excluded from the roster players see
+  createdAt: number; // list order
+  updatedAt: number; // last-write-wins stamp, so stale room echoes never overwrite newer edits
   color: string; // sheet paper color, hex
   portrait: string | null; // data URL or token image URL
   linkedTokenId: string | null; // OBR scene item id, if assigned from a token
@@ -145,6 +147,8 @@ export function blankCharacter(id: string, ownerId: string): Character {
     ownerId,
     type: "PC",
     hidden: false,
+    createdAt: Date.now(),
+    updatedAt: 0,
     color: "#FCFBF8",
     portrait: null,
     linkedTokenId: null,

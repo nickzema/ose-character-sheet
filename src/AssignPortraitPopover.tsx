@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
 import type { Character } from "./types";
-import { readRoster, writeCharacter } from "./rosterStore";
 import { syncLinkedToken } from "./statBubbles";
+import { charKey, migrateLegacy, readRoster } from "./useOBR";
 
 interface Props {
   tokenId: string;
@@ -17,8 +17,9 @@ export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName }: 
 
   useEffect(() => {
     OBR.onReady(async () => {
-      const [roster, role] = await Promise.all([readRoster(), OBR.player.getRole()]);
-      setRoster(roster);
+      try { await migrateLegacy(); } catch { /* ignore */ }
+      const [metadata, role] = await Promise.all([OBR.room.getMetadata(), OBR.player.getRole()]);
+      setRoster(readRoster(metadata));
       setIsGM(role === "GM");
     });
   }, []);
@@ -29,13 +30,12 @@ export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName }: 
 
   const assign = async (id: string) => {
     if (!roster) return;
-    const linked = roster.find((c) => c.id === id);
-    if (!linked) return;
-    // Only this character's key is written - the rest of the party is never
-    // touched, so this can't clobber anyone else's in-flight edits.
-    await writeCharacter({ ...linked, portrait: imageUrl, linkedTokenId: tokenId });
+    const current = roster.find((c) => c.id === id);
+    if (!current) return;
+    const linked: Character = { ...current, portrait: imageUrl, linkedTokenId: tokenId, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
+    await OBR.room.setMetadata({ [charKey(id)]: linked });
     // Push name/HP/AC to the token right away, not just on the next sheet edit.
-    await syncLinkedToken({ ...linked, portrait: imageUrl, linkedTokenId: tokenId });
+    await syncLinkedToken(linked);
     setDone(true);
     setTimeout(() => OBR.popover.close(`com.p4p.ose-character-sheet/assign-popover`), 600);
   };

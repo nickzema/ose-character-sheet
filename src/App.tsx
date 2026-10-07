@@ -23,7 +23,7 @@ function useAssignParams() {
 export default function App() {
   const assignParams = useAssignParams();
   const player = usePlayer();
-  const { roster, saveRoster, removeCharacter, saveWarning } = useRoster();
+  const { roster, saveCharacter, deleteCharacter: removeCharacter, saveWarning } = useRoster();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -53,12 +53,12 @@ export default function App() {
   const addCharacter = async () => {
     const c = blankCharacter(crypto.randomUUID(), player.id);
     c.player = player.name;
-    await saveRoster([...roster, c]);
+    await saveCharacter(c, true);
     setSelectedId(c.id);
   };
 
   const updateCharacter = (updated: Character) => {
-    saveRoster(roster.map((c) => (c.id === updated.id ? updated : c)));
+    saveCharacter(updated);
     syncLinkedToken(updated);
   };
 
@@ -68,7 +68,8 @@ export default function App() {
   };
 
   const toggleHidden = (id: string) => {
-    saveRoster(roster.map((c) => (c.id === id ? { ...c, hidden: !c.hidden } : c)));
+    const c = roster.find((x) => x.id === id);
+    if (c) saveCharacter({ ...c, hidden: !c.hidden });
   };
 
   // Players never see hidden characters, anywhere in this list - not just
