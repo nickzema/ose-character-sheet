@@ -23,7 +23,7 @@ function useAssignParams() {
 export default function App() {
   const assignParams = useAssignParams();
   const player = usePlayer();
-  const { roster, saveRoster, saveWarning } = useRoster();
+  const { roster, saveRoster, removeCharacter, saveWarning } = useRoster();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,7 +63,7 @@ export default function App() {
   };
 
   const deleteCharacter = (id: string) => {
-    saveRoster(roster.filter((c) => c.id !== id));
+    removeCharacter(id);
     setSelectedId(null);
   };
 

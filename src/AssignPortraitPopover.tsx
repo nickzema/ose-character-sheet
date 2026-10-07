@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
 import type { Character } from "./types";
+import { readRoster, writeCharacter } from "./rosterStore";
 import { syncLinkedToken } from "./statBubbles";
-
-const METADATA_KEY = "com.p4p.ose-character-sheet/roster";
 
 interface Props {
   tokenId: string;
@@ -18,8 +17,8 @@ export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName }: 
 
   useEffect(() => {
     OBR.onReady(async () => {
-      const [metadata, role] = await Promise.all([OBR.room.getMetadata(), OBR.player.getRole()]);
-      setRoster((metadata[METADATA_KEY] as Character[]) ?? []);
+      const [roster, role] = await Promise.all([readRoster(), OBR.player.getRole()]);
+      setRoster(roster);
       setIsGM(role === "GM");
     });
   }, []);
@@ -30,13 +29,13 @@ export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName }: 
 
   const assign = async (id: string) => {
     if (!roster) return;
-    const next = roster.map((c) =>
-      c.id === id ? { ...c, portrait: imageUrl, linkedTokenId: tokenId } : c
-    );
-    await OBR.room.setMetadata({ [METADATA_KEY]: next });
+    const linked = roster.find((c) => c.id === id);
+    if (!linked) return;
+    // Only this character's key is written - the rest of the party is never
+    // touched, so this can't clobber anyone else's in-flight edits.
+    await writeCharacter({ ...linked, portrait: imageUrl, linkedTokenId: tokenId });
     // Push name/HP/AC to the token right away, not just on the next sheet edit.
-    const linked = next.find((c) => c.id === id);
-    if (linked) await syncLinkedToken(linked);
+    await syncLinkedToken({ ...linked, portrait: imageUrl, linkedTokenId: tokenId });
     setDone(true);
     setTimeout(() => OBR.popover.close(`com.p4p.ose-character-sheet/assign-popover`), 600);
   };
