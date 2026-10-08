@@ -163,8 +163,8 @@ textarea.locked{ resize:none; }
   font-size:14px; padding:6px 8px; color:var(--ink);
 }
 .weapon-row .wname{ flex:1; min-width:0; }
-.weapon-row .wdmg{ width:56px; flex-shrink:0; text-align:center; }
-.weapon-row .wbonus{ width:40px; flex-shrink:0; text-align:center; }
+.weapon-row .wdmg{ width:56px; flex-shrink:0; text-align:left; }
+.weapon-row .wbonus{ width:40px; flex-shrink:0; text-align:left; }
 .weapon-type-btn{
   width:52px; height:34px; flex-shrink:0; background:var(--paper); color:var(--ink);
   border:1.5px solid var(--ink); cursor:pointer; font-family:'Oswald',sans-serif; font-weight:600; font-size:12px;
@@ -528,3 +528,7 @@ body.is-dragging [data-tip]::after{ display:none !important; }
 .armor-opts{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
 .armor-shield{ display:flex; align-items:center; gap:6px; justify-content:center; font-size:14px; }
 .modal-btn.rt-on{ background:var(--ink); color:var(--paper); }
+
+.rt-lvcls .rt-lv{ font:inherit; width:1.5em; text-align:center; border:0; background:transparent; color:inherit; padding:0; }
+.rt-lvcls .rt-lv:focus{ outline:none; background:rgba(17,17,17,.12); }
+.rt-lvcls .rt-lv:disabled{ opacity:1; -webkit-text-fill-color:currentColor; }

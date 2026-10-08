@@ -474,12 +474,6 @@ export default function CharacterSheet({ character: c, canEdit, isGM, me, onChan
               <Caption>Attack Bonus</Caption>
             </Row2>
             <Row2>
-              <ChipRow chip="HD" value={`d${eff.hitDie}`} disabled={lockedClass}
-                onChange={(v) => { const n = parseInt(v.replace(/[^\d]/g, "").replace(/^1(?=\d)/, ""), 10); if (n > 0) set("hitDie", n); }} />
-              <div />
-            </Row2>
-            <Row2><Caption>Hit Die</Caption><div /></Row2>
-            <Row2>
               <ChipRow chip="Mel" value={fmtMod(strMod)} disabled onRoll={() => rollMelMis("Melee Attack", strMod)} rollTitle="Roll d20 + Att + STR" tourId="mel-roll" />
               <ChipRow chip="Mis" value={fmtMod(dexMod)} disabled onRoll={() => rollMelMis("Missile Attack", dexMod)} rollTitle="Roll d20 + Att + DEX" tourId="mis-roll" />
             </Row2>
@@ -494,8 +488,8 @@ export default function CharacterSheet({ character: c, canEdit, isGM, me, onChan
             <div className="weapon-row weapon-head">
               <span className="mem-head-spacer" />
               <span className="caption" style={{ margin: 0, flex: 1 }}>Weapon</span>
-              <span className="caption" style={{ margin: 0, width: 56, textAlign: "center" }}>Damage</span>
-              <span className="caption" style={{ margin: 0, width: 40, textAlign: "center" }}>Magic</span>
+              <span className="caption" style={{ margin: 0, width: 56, paddingLeft: 9 }}>Damage</span>
+              <span className="caption" style={{ margin: 0, width: 40, paddingLeft: 9 }}>Magic</span>
               <span className="caption" style={{ margin: 0, width: 52 }}></span>
               <span className="caption" style={{ margin: 0, width: 48 }}></span>
               <span className="caption" style={{ margin: 0, width: 18 }}></span>

@@ -96,7 +96,8 @@ export default function App() {
   const generate = () => {
     if (!isGM) return;
     const next = retainers.reduce((m, r) => Math.max(m, r.order), -1) + 1;
-    saveRetainer(generateRetainer(next), true);
+    const top = roster.reduce((m, c) => (c.type === "PC" && !c.inactive ? Math.max(m, c.level) : m), 0);
+    saveRetainer(generateRetainer(next, top + 1), true);
   };
 
   // Players never see hidden characters, anywhere in this list - not just

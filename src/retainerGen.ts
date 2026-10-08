@@ -1,7 +1,7 @@
 import { NAME_LISTS } from "./retainerNames";
 import { abilityMod } from "./abilities";
 import { CLERIC_SPELLS, MAGIC_USER_SPELLS } from "./spells";
-import { classStats, NORMAL_HUMAN_SAVES, type ClassKey } from "./classData";
+import { classStats, maxLevelOf, hdOf, NORMAL_HUMAN_SAVES, type ClassKey } from "./classData";
 import { colorForClass, type Retainer } from "./retainerTypes";
 import type { Abilities, MemorizedSpell, Weapon } from "./types";
 
@@ -40,22 +40,24 @@ function rollClass(a: Abilities): ClassKey | "Normal Human" {
   return cls;
 }
 
-const rollLevel = () => (rnd(6) === 1 ? rnd(3) + 1 : 1);
+/** Level 1 up to maxLevel (highest active PC + 1), within the class's own cap. */
+const rollLevel = (cls: ClassKey, maxLevel: number) => rnd(Math.min(Math.max(1, maxLevel), maxLevelOf(cls)));
 
-// Spell slots by level (levels 1-4 only - all an applicant can be).
-const SLOTS: Partial<Record<ClassKey, number[][]>> = {
-  Cleric: [[], [1], [2], [2, 1]],
-  Elf: [[1], [2], [2, 1], [2, 2]],
-  "Magic-User": [[1], [2], [2, 1], [2, 2]],
-};
+// Spell slots by level, from the OSE Classic level progression tables.
+const CLERIC_SLOTS: number[][] = [[], [1], [2], [2, 1], [2, 2], [2, 2, 1, 1], [2, 2, 2, 1, 1], [3, 3, 2, 2, 1], [3, 3, 3, 2, 2], [4, 4, 3, 3, 2], [4, 4, 4, 3, 3], [5, 5, 4, 4, 3], [5, 5, 5, 4, 4], [6, 5, 5, 5, 4]];
+const MU_SLOTS: number[][] = [[1], [2], [2, 1], [2, 2], [2, 2, 1], [2, 2, 2], [3, 2, 2, 1], [3, 3, 2, 2], [3, 3, 3, 2, 1], [3, 3, 3, 3, 2], [4, 3, 3, 3, 2, 1], [4, 4, 3, 3, 3, 2], [4, 4, 4, 3, 3, 3], [4, 4, 4, 4, 3, 3]];
+const SLOTS: Partial<Record<ClassKey, number[][]>> = { Cleric: CLERIC_SLOTS, Elf: MU_SLOTS, "Magic-User": MU_SLOTS };
 
-function rollSpells(cls: ClassKey, level: number): MemorizedSpell[] {
+function rollSpells(cls: ClassKey, level: number, keep: MemorizedSpell[] = []): MemorizedSpell[] {
   const slots = SLOTS[cls]?.[level - 1] ?? [];
   const list = cls === "Cleric" ? CLERIC_SPELLS : MAGIC_USER_SPELLS;
   const out: MemorizedSpell[] = [];
   slots.forEach((n, i) => {
-    const pool = [...list[i + 1]];
-    for (let k = 0; k < n && pool.length; k++) {
+    // Keep what the card already has at this spell level (up to the slot count), roll the rest.
+    const have = keep.filter((x) => x.level === i + 1).slice(0, n);
+    out.push(...have);
+    const pool = list[i + 1].filter((nm) => !have.some((h) => h.name === nm));
+    for (let k = have.length; k < n && pool.length; k++) {
       const [name] = pool.splice(rnd(pool.length) - 1, 1);
       out.push({ name, level: i + 1, used: false });
     }
@@ -99,13 +101,40 @@ const SUBTABLES: Record<ClassKey, string[]> = {
   Thief: ["Potion", "Ring", "Misc. Item", "Armour/Shield", "Sword", "Misc. Weapon"],
 };
 
-export function generateRetainer(order: number): Retainer {
+const levelHp = (cls: ClassKey, lv: number, conMod: number) =>
+  lv <= 9 ? Math.max(1, rnd(hdOf(cls)) + conMod) : classStats(cls, lv, { str: 10, int: 10, wis: 10, dex: 10, con: 10, cha: 10 }, "1-2").flatHp;
+
+/** Change a retainer's level: saves, attack, HP and spell slots follow the class tables. */
+export function applyLevel(r: Retainer, level: number): Retainer {
+  if (r.classKey === "Normal Human") return r;
+  const cls = r.classKey;
+  const lv = Math.min(Math.max(1, Math.round(level) || 1), maxLevelOf(cls));
+  if (lv === r.level) return r;
+  const info = classStats(cls, lv, r.abilities, "1-2");
+  const con = abilityMod(r.abilities.con);
+  let hpMax = r.hpMax, hpCurrent = r.hpCurrent;
+  if (lv > r.level) {
+    let gain = 0;
+    for (let i = r.level + 1; i <= lv; i++) gain += levelHp(cls, i, con);
+    hpMax += gain; hpCurrent += gain;
+  } else {
+    let hp = 0;
+    for (let i = 1; i <= lv; i++) hp += levelHp(cls, i, con);
+    hpMax = hp; hpCurrent = Math.min(hpCurrent, hp);
+  }
+  return {
+    ...r, level: lv, saves: info.saves, attackBonus: info.attackBonus, hpMax, hpCurrent,
+    spells: SLOTS[cls] ? rollSpells(cls, lv, r.spells) : r.spells,
+  };
+}
+
+export function generateRetainer(order: number, maxLevel = 1): Retainer {
   // 1. Abilities, 3d6 in order.
   const a: Abilities = { str: roll(3, 6), int: roll(3, 6), wis: roll(3, 6), dex: roll(3, 6), con: roll(3, 6), cha: roll(3, 6) };
   // 2-3. Class, then level.
   const cls = rollClass(a);
   const normal = cls === "Normal Human";
-  const level = normal ? 0 : rollLevel();
+  const level = normal ? 0 : rollLevel(cls, maxLevel);
   const conMod = abilityMod(a.con);
   const dexMod = abilityMod(a.dex);
 
@@ -118,7 +147,7 @@ export function generateRetainer(order: number): Retainer {
     hp = Math.max(1, rnd(4) + conMod);
   } else {
     const info = classStats(cls, level, a, "1-2");
-    for (let i = 0; i < level; i++) hp += Math.max(1, rnd(info.hitDie) + conMod);
+    for (let i = 1; i <= level; i++) hp += levelHp(cls, i, conMod);
     saves = info.saves;
     attackBonus = info.attackBonus;
     spells = rollSpells(cls, level);

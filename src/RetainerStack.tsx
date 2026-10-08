@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Character } from "./types";
 import type { Retainer } from "./retainerTypes";
+import type { ClassKey } from "./classData";
 import { POSTIT_SWATCHES } from "./retainerTypes";
 import { abilityMod, fmtMod } from "./abilities";
-import { hdOf } from "./classData";
+import { hdOf, maxLevelOf } from "./classData";
+import { applyLevel } from "./retainerGen";
 import { rollWeapon, termString } from "./dice";
 import { RollBanner, AppModal, fallbackNoteFor, useRoller } from "./rollUi";
 
@@ -19,8 +21,8 @@ interface Props {
 }
 
 const CARD_H = 340;
-const TOP_PAD = 46; // room above the row for the selected card's bump up
-const ROW_GAP = 22;
+const TOP_PAD = 40; // room above the row for the selected card's bump up
+const ROW_GAP = 8;
 const STRIP = 120; // visible width of a covered card
 
 const SAVE_LABELS: { key: keyof Retainer["saves"]; chip: string; name: string; alwaysMagic: boolean; askMagic: boolean }[] = [
@@ -73,8 +75,7 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
   const stepFor = (n: number) => (n > 1 ? Math.min(STRIP + 8, (width - cw) / (n - 1)) : 0);
 
   useEffect(() => {
-    if (sel && !visible.some((r) => r.id === sel)) setSel(visible.length ? visible[visible.length - 1].id : null);
-    if (!sel && visible.length) setSel(visible[visible.length - 1].id);
+    if (sel && !visible.some((r) => r.id === sel)) setSel(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible.map((r) => r.id).join(",")]);
 
@@ -264,7 +265,16 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
       >
         <div className="rt-top">
           <div className="rt-title">
-            <div className="rt-lvcls">{labelFor(r)}</div>
+            <div className="rt-lvcls">
+              {r.classKey === "Normal Human" ? "Normal Human" : (
+                <>
+                  Level{" "}
+                  <input className="rt-lv" value={r.level} disabled={!canGM} inputMode="numeric"
+                    onChange={(e) => { const n = parseInt(e.target.value.replace(/\D/g, ""), 10); if (n >= 1) onSave(applyLevel(r, Math.min(n, maxLevelOf(r.classKey as ClassKey)))); }} />{" "}
+                  {r.classKey}
+                </>
+              )}
+            </div>
             <input className="rt-in rt-name" value={r.name} placeholder="Name" disabled={!canGM} onChange={(e) => onSave({ ...r, name: e.target.value })} />
           </div>
           <select className="rt-owner" value={r.ownerCharacterId} disabled={!canGM} onChange={(e) => setOwner(r, e.target.value)}>

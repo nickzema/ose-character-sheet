@@ -154,3 +154,4 @@ export const hdOf = (cls: ClassKey) => DEFS[cls].hitDie;
 // Normal Human (OSE Classic Monsters): level 0, 1/2 HD, THAC0 20 [-1].
 export const NORMAL_HUMAN_SAVES: Saves = { death: 14, wands: 15, paralysis: 16, breath: 17, spells: 18 };
 
+export const maxLevelOf = (cls: ClassKey) => DEFS[cls].maxLevel;
