@@ -56,7 +56,7 @@ function pack<T extends Stored>(item: T, blank: T): Record<string, unknown> {
   return { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, z: LZString.compressToBase64(JSON.stringify(diff)) };
 }
 
-function unpack(v: Record<string, unknown>): Record<string, unknown> {
+export function unpack(v: Record<string, unknown>): Record<string, unknown> {
   if (typeof v.z !== "string") return v;
   try {
     const diff = JSON.parse(LZString.decompressFromBase64(v.z) || "{}");
@@ -119,6 +119,26 @@ function readTombstones(metadata: Record<string, unknown>, prefix: string): Map<
     if (t.deleted && t.id) out.set(t.id, t.updatedAt ?? 0);
   }
   return out;
+}
+
+/**
+ * Delete room-metadata keys and VERIFY it. Owlbear's docs don't say how a key
+ * is removed, so try removal methods in turn, reading the room back after each,
+ * and stop when every key is gone (or reduced to an empty value, the smallest
+ * Owlbear will keep). Returns false if any key still holds data.
+ */
+export async function deleteKeys(keys: string[]): Promise<boolean> {
+  let remaining = keys;
+  for (const value of [undefined, null, 0]) {
+    if (!remaining.length) break;
+    const update: Record<string, unknown> = {};
+    remaining.forEach((k) => { update[k] = value; });
+    try { await OBR.room.setMetadata(update); } catch { /* try the next method */ }
+    let m: Record<string, unknown>;
+    try { m = await OBR.room.getMetadata(); } catch { return false; }
+    remaining = remaining.filter((k) => k in m && m[k] !== null && m[k] !== 0);
+  }
+  return remaining.length === 0;
 }
 
 /**
@@ -243,12 +263,8 @@ function useSyncedList<T extends Stored>(opts: {
     localRef.current.delete(id);
     unseenRef.current.delete(id);
     publish();
-    try {
-      // undefined removes the key outright (null would leave the key behind, still costing space).
-      await OBR.room.setMetadata({ [key(id)]: undefined });
-    } catch {
-      setSaveWarning("Couldn't delete - try again.");
-    }
+    // Removed for real (verified); the item stays hidden here either way.
+    if (!(await deleteKeys([key(id)]))) setSaveWarning("Couldn't fully delete that - its data may still be taking up room storage.");
   };
 
   return { items, save, saveMany, remove, saveWarning };
@@ -280,18 +296,22 @@ export function useRetainers() {
 
 /** Bytes of room metadata in use (Owlbear caps it at 16 kB, shared by every extension). */
 export const ROOM_LIMIT = 16384;
-export interface RoomUsage { total: number; sheets: number; retainers: number; deleted: number; legacy: number; other: number; perItem: Record<string, number> }
+export interface RoomUsage { total: number; sheets: number; retainers: number; deleted: number; legacy: number; other: number; perItem: Record<string, number>; retKeys: { id: string; n: number; label: string }[] }
 const bytesOf = (v: unknown) => new TextEncoder().encode(JSON.stringify(v) ?? "").length;
 export function measureRoom(m: Record<string, unknown>): RoomUsage {
-  const u: RoomUsage = { total: 0, sheets: 0, retainers: 0, deleted: 0, legacy: 0, other: 0, perItem: {} };
+  const u: RoomUsage = { total: 0, sheets: 0, retainers: 0, deleted: 0, legacy: 0, other: 0, perItem: {}, retKeys: [] };
   for (const [k, v] of Object.entries(m)) {
     const n = k.length + bytesOf(v) + 6;
     u.total += n;
     const tomb = !!v && typeof v === "object" && (v as { deleted?: boolean }).deleted;
-    if (tomb || v === null) u.deleted += n;
+    if (tomb || v === null || v === 0) u.deleted += n;
     else if (k === LEGACY_KEY) u.legacy += n;
     else if (k.startsWith(CHAR_PREFIX)) { u.sheets += n; u.perItem[k.slice(CHAR_PREFIX.length)] = n; }
-    else if (k.startsWith(RET_PREFIX)) u.retainers += n;
+    else if (k.startsWith(RET_PREFIX)) {
+      u.retainers += n;
+      const o = unpack((v ?? {}) as Record<string, unknown>);
+      u.retKeys.push({ id: k.slice(RET_PREFIX.length), n, label: `${o.name || "Unnamed"} (${o.classKey ?? "?"})` });
+    }
     else u.other += n;
   }
   return u;
@@ -313,15 +333,17 @@ export function useRoomUsage() {
 export async function repackRoom() {
   const m = await OBR.room.getMetadata();
   const update: Record<string, unknown> = {};
+  const sweep: string[] = [];
   for (const [k, v] of Object.entries(m)) {
-    if (v === null && (k === LEGACY_KEY || k.startsWith(CHAR_PREFIX) || k.startsWith(RET_PREFIX))) { update[k] = undefined; continue; } // leftover empty keys
+    if ((v === null || v === 0) && (k === LEGACY_KEY || k.startsWith(CHAR_PREFIX) || k.startsWith(RET_PREFIX))) { sweep.push(k); continue; } // leftover empty keys
     if (!v || typeof v !== "object") continue;
     const o = v as Record<string, unknown>;
-    if (o.deleted && (k.startsWith(CHAR_PREFIX) || k.startsWith(RET_PREFIX))) { update[k] = undefined; continue; } // sweep tombstones
+    if (o.deleted && (k.startsWith(CHAR_PREFIX) || k.startsWith(RET_PREFIX))) { sweep.push(k); continue; } // sweep tombstones
     if (o.deleted || typeof o.z === "string" || typeof o.id !== "string") continue;
     if (k.startsWith(CHAR_PREFIX)) update[k] = packCharacter(healCharacter(o as Partial<Character> & { id: string }));
     else if (k.startsWith(RET_PREFIX)) update[k] = packRetainer(healRetainer(o as Partial<Retainer> & { id: string }));
   }
-  if (Array.isArray(m[LEGACY_KEY]) && (m[LEGACY_KEY] as unknown[]).length === 0) update[LEGACY_KEY] = undefined;
+  if (Array.isArray(m[LEGACY_KEY]) && (m[LEGACY_KEY] as unknown[]).length === 0) sweep.push(LEGACY_KEY);
   if (Object.keys(update).length) await OBR.room.setMetadata(update);
+  if (sweep.length) await deleteKeys(sweep);
 }

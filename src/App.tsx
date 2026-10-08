@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import { usePlayer, useRoster, useRetainers, useRoomUsage, repackRoom, ROOM_LIMIT } from "./useOBR";
+import { usePlayer, useRoster, useRetainers, useRoomUsage, repackRoom, ROOM_LIMIT, retKey, deleteKeys } from "./useOBR";
 import { blankCharacter, type Character } from "./types";
 import { generateRetainer } from "./retainerGen";
 import type { Retainer } from "./retainerTypes";
@@ -135,6 +135,16 @@ export default function App() {
               <div>Deleted {kb(usage.deleted)}</div>
               <div>Old data {kb(usage.legacy)}</div>
               <div>Other extensions {kb(usage.other)}</div>
+              {usage.retKeys.map((k) => {
+                const shown = retainers.some((r) => r.id === k.id);
+                return <div key={k.id} className="sub">Retainer: {k.label} {kb(k.n)}{shown ? "" : " - NOT SHOWN"}</div>;
+              })}
+              {usage.retKeys.some((k) => !retainers.some((r) => r.id === k.id)) && (
+                <button className="btn text danger" onClick={async (e) => {
+                  e.stopPropagation();
+                  await deleteKeys(usage.retKeys.filter((k) => !retainers.some((r) => r.id === k.id)).map((k) => retKey(k.id)));
+                }}>Clear stray retainer data</button>
+              )}
               {roster.map((c) => <div key={c.id} className="sub">{c.name || "Unnamed"} {kb(usage.perItem[c.id] ?? 0)}</div>)}
             </div>
           )}
