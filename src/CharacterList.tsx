@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Character } from "./types";
 import HelpButton, { type TourStep } from "./HelpButton";
 
@@ -8,9 +9,17 @@ interface Props {
   onAdd: () => void;
   onDelete: (id: string) => void;
   onToggleHidden: (id: string) => void;
+  view: "party" | "inactive";
+  inactiveCount: number;
+  onShowInactive: () => void;
+  onShowParty: () => void;
+  canToggleActive: (c: Character) => boolean;
+  onToggleActive: (id: string) => void;
+  children?: ReactNode; // retainer stack, shown under the party rows
 }
 
-export default function CharacterList({ characters, isGM, onSelect, onAdd, onDelete, onToggleHidden }: Props) {
+export default function CharacterList({ characters, isGM, onSelect, onAdd, onDelete, onToggleHidden, view, inactiveCount, onShowInactive, onShowParty, canToggleActive, onToggleActive, children }: Props) {
+  const inactiveView = view === "inactive";
   const sorted = [...characters].sort((a, b) => {
     if (a.type !== b.type) return a.type === "PC" ? -1 : 1;
     return a.name.localeCompare(b.name);
@@ -31,14 +40,21 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
   return (
     <div className="list">
       <div className="list-toolbar">
-        <h2>Party</h2>
+        <h2>{inactiveView ? "Inactive" : "Party"}</h2>
         <div className="list-toolbar-right">
           <HelpButton title="Party list help" steps={LIST_HELP_STEPS(isGM)} />
-          <button className="btn" onClick={onAdd}>+ New</button>
+          {inactiveView ? (
+            <button className="btn" onClick={onShowParty}>&larr; Party</button>
+          ) : (
+            <>
+              <button className="btn" onClick={onShowInactive}>Inactive{inactiveCount ? ` (${inactiveCount})` : ""}</button>
+              <button className="btn" onClick={onAdd}>+ New</button>
+            </>
+          )}
         </div>
       </div>
       <div className="roster">
-        {sorted.length === 0 && <div className="empty-state">No characters yet. Add one to get started.</div>}
+        {sorted.length === 0 && <div className="empty-state">{inactiveView ? "No inactive characters." : "No characters yet. Add one to get started."}</div>}
         {sorted.map((c) => (
           <div key={c.id} className={`char-row ${c.hidden ? "hidden-row" : ""}`} onClick={() => onSelect(c.id)}>
             {c.portrait ? (
@@ -60,6 +76,12 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
               </div>
               <div className="row-right">
                 <div className="hp-box">{c.player || ""}</div>
+                {canToggleActive(c) && (
+                  <button className="row-hide row-act" data-tip={c.inactive ? "Make active" : "Make inactive"}
+                    onClick={(e) => { e.stopPropagation(); onToggleActive(c.id); }}>
+                    {c.inactive ? "Active" : "Inactive"}
+                  </button>
+                )}
                 {isGM && (
                   <button
                     className={`row-hide ${c.hidden ? "active" : ""}`}
@@ -77,6 +99,7 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
           </div>
         ))}
       </div>
+      {children}
       <div className="brand-footer">
         <span className="brand-mark" aria-hidden="true" />
         <span>Another Zemaria product</span>

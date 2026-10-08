@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import { usePlayer, useRoster } from "./useOBR";
+import { usePlayer, useRoster, useRetainers } from "./useOBR";
 import { blankCharacter, type Character } from "./types";
+import { generateRetainer } from "./retainerGen";
+import type { Retainer } from "./retainerTypes";
 import { setupContextMenu } from "./contextMenu";
 import { syncLinkedToken } from "./statBubbles";
 import CharacterList from "./CharacterList";
 import CharacterSheet from "./CharacterSheet";
+import RetainerStack from "./RetainerStack";
 import AssignPortraitPopover from "./AssignPortraitPopover";
 import "zemaria-ui/zemaria.css";
 import "./styles.css";
@@ -17,6 +20,7 @@ function useAssignParams() {
     tokenId: params.get("tokenId") || "",
     imageUrl: params.get("imageUrl") || "",
     tokenName: params.get("tokenName") || "Token",
+    kind: params.get("kind") === "retainer" ? ("retainer" as const) : ("character" as const),
   };
 }
 
@@ -24,7 +28,9 @@ export default function App() {
   const assignParams = useAssignParams();
   const player = usePlayer();
   const { roster, saveCharacter, deleteCharacter: removeCharacter, saveWarning } = useRoster();
+  const { retainers, saveRetainer, saveRetainers, deleteRetainer, retainerWarning } = useRetainers();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<"party" | "inactive">("party");
 
   useEffect(() => {
     if (assignParams) return; // the popover doesn't need the context menu
@@ -39,11 +45,12 @@ export default function App() {
         tokenId={assignParams.tokenId}
         imageUrl={assignParams.imageUrl}
         tokenName={assignParams.tokenName}
+        kind={assignParams.kind}
       />
     );
   }
 
-  if (!player || roster === null) {
+  if (!player || roster === null || retainers === null) {
     return <div className="loading">Loading party...</div>;
   }
 
@@ -52,7 +59,9 @@ export default function App() {
 
   const addCharacter = async () => {
     const c = blankCharacter(crypto.randomUUID(), player.id);
-    c.player = player.name;
+    // A GM's new sheet starts as an NPC; a player's starts as their own PC.
+    if (isGM) c.type = "NPC";
+    else c.player = player.name;
     await saveCharacter(c, true);
     setSelectedId(c.id);
   };
@@ -64,6 +73,8 @@ export default function App() {
 
   const deleteCharacter = (id: string) => {
     removeCharacter(id);
+    // Retainers that served this character go back to unhired.
+    retainers.filter((r) => r.ownerCharacterId === id).forEach((r) => saveRetainer({ ...r, ownerCharacterId: "" }));
     setSelectedId(null);
   };
 
@@ -72,33 +83,71 @@ export default function App() {
     if (c) saveCharacter({ ...c, hidden: !c.hidden });
   };
 
+  const toggleActive = (id: string) => {
+    const c = roster.find((x) => x.id === id);
+    if (c) saveCharacter({ ...c, inactive: !c.inactive });
+  };
+
+  const updateRetainer = (r: Retainer) => {
+    saveRetainer(r);
+    syncLinkedToken(r);
+  };
+
+  const generate = () => {
+    if (!isGM) return;
+    const next = retainers.reduce((m, r) => Math.max(m, r.order), -1) + 1;
+    saveRetainer(generateRetainer(next), true);
+  };
+
   // Players never see hidden characters, anywhere in this list - not just
   // dimmed or locked, absent entirely. The GM still sees them (dimmed).
   const visibleRoster = isGM ? roster : roster.filter((c) => !c.hidden);
+  const partyRoster = visibleRoster.filter((c) => !c.inactive);
+  const inactiveRoster = visibleRoster.filter((c) => c.inactive);
 
   const selected = selectedId ? visibleRoster.find((c) => c.id === selectedId) ?? null : null;
 
   return (
     <div className="app">
-      {saveWarning && <div className="save-warning">{saveWarning}</div>}
+      {(saveWarning || retainerWarning) && <div className="save-warning">{saveWarning || retainerWarning}</div>}
       {selected ? (
         <CharacterSheet
           character={selected}
           canEdit={canEdit(selected)}
           isGM={isGM}
+          me={{ id: player.id, name: player.name }}
           onChange={updateCharacter}
           onDelete={() => deleteCharacter(selected.id)}
           onBack={() => setSelectedId(null)}
         />
       ) : (
         <CharacterList
-          characters={visibleRoster}
+          characters={view === "inactive" ? inactiveRoster : partyRoster}
           isGM={isGM}
           onSelect={setSelectedId}
           onAdd={addCharacter}
           onDelete={deleteCharacter}
           onToggleHidden={toggleHidden}
-        />
+          view={view}
+          inactiveCount={inactiveRoster.length}
+          onShowInactive={() => setView("inactive")}
+          onShowParty={() => setView("party")}
+          canToggleActive={canEdit}
+          onToggleActive={toggleActive}
+        >
+          {view === "party" && (
+            <RetainerStack
+              retainers={retainers}
+              characters={roster}
+              playerId={player.id}
+              isGM={isGM}
+              onSave={updateRetainer}
+              onSaveMany={saveRetainers}
+              onDelete={deleteRetainer}
+              onGenerate={generate}
+            />
+          )}
+        </CharacterList>
       )}
     </div>
   );

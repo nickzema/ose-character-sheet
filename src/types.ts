@@ -1,3 +1,5 @@
+import { classChoiceFromName, type ClassChoice } from "./classData";
+
 export interface Abilities {
   str: number;
   int: number;
@@ -81,6 +83,11 @@ export interface Character {
   name: string;
   player: string; // player's real name (PC) or owning PC's name (NPC)
   className: string;
+  // Which class table drives auto-filled stats. "" / "Other" = nothing is
+  // auto-filled; the stored saves, attack bonus, etc. are used and editable.
+  classKey: ClassChoice;
+  hitDie: number; // used when classKey is "" / "Other"
+  inactive: boolean; // moved off the party list into the Inactive list
   title: string;
   level: number;
   alignment: string;
@@ -156,6 +163,9 @@ export function blankCharacter(id: string, ownerId: string): Character {
     name: "",
     player: "",
     className: "",
+    classKey: "",
+    hitDie: 6,
+    inactive: false,
     title: "",
     level: 1,
     alignment: "Neutral",
@@ -275,6 +285,7 @@ export function healCharacter(raw: Partial<Character> & { id: string; ownerId?: 
   return {
     ...blank,
     ...raw,
+    classKey: raw.classKey ?? classChoiceFromName(raw.className ?? ""),
     inventoryMode,
     abilities: { ...blank.abilities, ...raw.abilities },
     saves: { ...blank.saves, ...raw.saves },

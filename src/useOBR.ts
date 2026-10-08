@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
 import { healCharacter, type Character } from "./types";
+import { healRetainer, type Retainer } from "./retainerTypes";
 
 // Legacy: the whole party as one array under a single key. Every edit rewrote
 // all of it, so concurrent edits clobbered each other. Kept only to migrate.
@@ -8,6 +9,9 @@ export const LEGACY_KEY = "com.p4p.ose-character-sheet/roster";
 // Current: one key per character, so an edit only touches that character.
 export const CHAR_PREFIX = "com.p4p.ose-character-sheet/char/";
 export const charKey = (id: string) => CHAR_PREFIX + id;
+// Retainer cards: same per-item key scheme, own prefix.
+export const RET_PREFIX = "com.p4p.ose-character-sheet/ret/";
+export const retKey = (id: string) => RET_PREFIX + id;
 
 export interface PlayerInfo {
   id: string;
@@ -35,15 +39,25 @@ export function usePlayer() {
   return player;
 }
 
-export function readRoster(metadata: Record<string, unknown>): Character[] {
-  const out: Character[] = [];
+interface Stored { id: string; createdAt: number; updatedAt: number }
+
+function readItems<T extends Stored>(metadata: Record<string, unknown>, prefix: string, heal: (raw: Partial<T> & { id: string }) => T, sort: (a: T, b: T) => number): T[] {
+  const out: T[] = [];
   for (const [k, v] of Object.entries(metadata)) {
-    if (!k.startsWith(CHAR_PREFIX) || !v || typeof v !== "object") continue;
+    if (!k.startsWith(prefix) || !v || typeof v !== "object") continue;
     if ((v as { deleted?: boolean }).deleted) continue; // tombstone
-    out.push(healCharacter(v as Partial<Character> & { id: string }));
+    out.push(heal(v as Partial<T> & { id: string }));
   }
-  return out.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  return out.sort(sort);
 }
+
+const byCreated = (a: Stored, b: Stored) => a.createdAt - b.createdAt || a.id.localeCompare(b.id);
+const byOrder = (a: Retainer, b: Retainer) => a.order - b.order || byCreated(a, b);
+
+export const readRoster = (metadata: Record<string, unknown>): Character[] =>
+  readItems<Character>(metadata, CHAR_PREFIX, healCharacter, byCreated);
+export const readRetainers = (metadata: Record<string, unknown>): Retainer[] =>
+  readItems<Retainer>(metadata, RET_PREFIX, healRetainer, byOrder);
 
 // One-time move from the legacy single-array key to per-character keys.
 // Only writes characters that don't already have a key, re-reading the room
@@ -66,37 +80,50 @@ export async function migrateLegacy() {
   }
 }
 
-// Deleted characters leave a tiny tombstone rather than relying on a key
-// being removed, so a delete reliably reaches every client and a stale
-// echo can't bring the character back.
-function readTombstones(metadata: Record<string, unknown>): Map<string, number> {
+// Deleted items leave a tiny tombstone rather than relying on a key being
+// removed, so a delete reliably reaches every client and a stale echo can't
+// bring the item back.
+function readTombstones(metadata: Record<string, unknown>, prefix: string): Map<string, number> {
   const out = new Map<string, number>();
   for (const [k, v] of Object.entries(metadata)) {
-    if (!k.startsWith(CHAR_PREFIX) || !v || typeof v !== "object") continue;
+    if (!k.startsWith(prefix) || !v || typeof v !== "object") continue;
     const t = v as { deleted?: boolean; id?: string; updatedAt?: number };
     if (t.deleted && t.id) out.set(t.id, t.updatedAt ?? 0);
   }
   return out;
 }
 
-export function useRoster() {
-  const [roster, setRoster] = useState<Character[] | null>(null);
+/**
+ * A list of items kept in room metadata, one key per item. Edits only touch
+ * that item's key, and the newest updatedAt wins, so two people editing
+ * different items (or the same one at different moments) never overwrite
+ * each other.
+ */
+function useSyncedList<T extends Stored>(opts: {
+  prefix: string;
+  heal: (raw: Partial<T> & { id: string }) => T;
+  sort: (a: T, b: T) => number;
+  migrate?: () => Promise<void>;
+  fullWarning: string;
+  stripOnFull?: (item: T) => T | null;
+}) {
+  const { prefix, heal, sort, fullWarning } = opts;
+  const [items, setItems] = useState<T[] | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
-  // Latest local version of every character, including edits whose write
-  // hasn't been echoed back yet. An incoming room value only replaces a
-  // local one if it's strictly newer (updatedAt), so a late echo of an older
-  // write can never revert what was just typed.
-  const localRef = useRef<Map<string, Character>>(new Map());
+  // Latest local version of every item, including edits whose write hasn't
+  // been echoed back yet. An incoming room value only replaces a local one if
+  // it's strictly newer (updatedAt), so a late echo can't revert a fresh edit.
+  const localRef = useRef<Map<string, T>>(new Map());
   const deletedRef = useRef<Set<string>>(new Set());
   const unseenRef = useRef<Set<string>>(new Set()); // created here, not yet seen in the room
+  const key = (id: string) => prefix + id;
 
-  const publish = () =>
-    setRoster([...localRef.current.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)));
+  const publish = () => setItems([...localRef.current.values()].sort(sort));
 
   const merge = (metadata: Record<string, unknown>) => {
-    const incoming = readRoster(metadata);
+    const incoming = readItems<T>(metadata, prefix, heal, sort);
     const seen = new Set<string>();
-    for (const [id, at] of readTombstones(metadata)) {
+    for (const [id, at] of readTombstones(metadata, prefix)) {
       const local = localRef.current.get(id);
       if (local && at >= local.updatedAt) localRef.current.delete(id);
       deletedRef.current.add(id);
@@ -119,7 +146,7 @@ export function useRoster() {
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     OBR.onReady(async () => {
-      try { await migrateLegacy(); } catch { /* retry next load */ }
+      try { await opts.migrate?.(); } catch { /* retry next load */ }
       merge(await OBR.room.getMetadata());
       unsubscribe = OBR.room.onMetadataChange((metadata) => merge(metadata));
     });
@@ -127,48 +154,85 @@ export function useRoster() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const write = async (c: Character) => {
+  const write = async (batch: T[]) => {
+    const update: Record<string, unknown> = {};
+    for (const it of batch) update[key(it.id)] = it;
     try {
-      await OBR.room.setMetadata({ [charKey(c.id)]: c });
+      await OBR.room.setMetadata(update);
       setSaveWarning(null);
     } catch {
       // Room metadata is capped (16kB total, shared by every extension in
-      // the room). Retry without a manually-uploaded portrait, which is by
-      // far the largest field.
-      if (c.portrait && !c.linkedTokenId) {
-        const stripped = { ...c, portrait: null };
-        try {
-          await OBR.room.setMetadata({ [charKey(c.id)]: stripped });
-          localRef.current.set(c.id, stripped);
-          publish();
-          setSaveWarning("Room storage is full, so manually-uploaded portraits couldn't be saved. Assign a token to a character instead for a portrait that persists.");
-          return;
-        } catch { /* fall through */ }
+      // the room). Retry with the largest optional field stripped.
+      if (batch.length === 1 && opts.stripOnFull) {
+        const stripped = opts.stripOnFull(batch[0]);
+        if (stripped) {
+          try {
+            await OBR.room.setMetadata({ [key(stripped.id)]: stripped });
+            localRef.current.set(stripped.id, stripped);
+            publish();
+            setSaveWarning("Room storage is full, so manually-uploaded portraits couldn't be saved. Assign a token to a character instead for a portrait that persists.");
+            return;
+          } catch { /* fall through */ }
+        }
       }
-      setSaveWarning("NOT SAVED - room storage is full. Changes will be lost on refresh. Remove a portrait or trim notes.");
+      setSaveWarning(fullWarning);
     }
   };
 
-  const saveCharacter = (next: Character, isNew = false) => {
+  const stamp = (next: T): T => {
     const prev = localRef.current.get(next.id);
-    const stamped = { ...next, updatedAt: Math.max(Date.now(), (prev?.updatedAt ?? 0) + 1) };
+    return { ...next, updatedAt: Math.max(Date.now(), (prev?.updatedAt ?? 0) + 1) };
+  };
+
+  const save = (next: T, isNew = false) => {
+    const stamped = stamp(next);
     localRef.current.set(stamped.id, stamped);
     if (isNew) unseenRef.current.add(stamped.id);
+    publish();
+    return write([stamped]);
+  };
+
+  // Several items in one room write (e.g. reordering).
+  const saveMany = (nexts: T[]) => {
+    const stamped = nexts.map(stamp);
+    for (const s of stamped) localRef.current.set(s.id, s);
     publish();
     return write(stamped);
   };
 
-  const deleteCharacter = async (id: string) => {
+  const remove = async (id: string) => {
     deletedRef.current.add(id);
     localRef.current.delete(id);
     unseenRef.current.delete(id);
     publish();
     try {
-      await OBR.room.setMetadata({ [charKey(id)]: { id, deleted: true, updatedAt: Date.now() } });
+      await OBR.room.setMetadata({ [key(id)]: { id, deleted: true, updatedAt: Date.now() } });
     } catch {
       setSaveWarning("Couldn't delete - try again.");
     }
   };
 
-  return { roster, saveCharacter, deleteCharacter, saveWarning };
+  return { items, save, saveMany, remove, saveWarning };
+}
+
+export function useRoster() {
+  const r = useSyncedList<Character>({
+    prefix: CHAR_PREFIX,
+    heal: healCharacter,
+    sort: byCreated,
+    migrate: migrateLegacy,
+    fullWarning: "NOT SAVED - room storage is full. Changes will be lost on refresh. Remove a portrait or trim notes.",
+    stripOnFull: (c) => (c.portrait && !c.linkedTokenId ? { ...c, portrait: null } : null),
+  });
+  return { roster: r.items, saveCharacter: r.save, deleteCharacter: r.remove, saveWarning: r.saveWarning };
+}
+
+export function useRetainers() {
+  const r = useSyncedList<Retainer>({
+    prefix: RET_PREFIX,
+    heal: healRetainer,
+    sort: byOrder,
+    fullWarning: "NOT SAVED - room storage is full. Remove a retainer or a portrait.",
+  });
+  return { retainers: r.items, saveRetainer: r.save, saveRetainers: r.saveMany, deleteRetainer: r.remove, retainerWarning: r.saveWarning };
 }

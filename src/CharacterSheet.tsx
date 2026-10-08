@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import OBR from "@owlbear-rodeo/sdk";
 import type { Character, Weapon, MemorizedSpell, BasicInventory, DetailedInventory, WeightedItem, ArmourType } from "./types";
 import {
   abilityMod, strOpenDoors, fmtMod, unarmoredAC, thiefSkillsForLevel, turnUndeadForLevel, TURN_UNDEAD_COLUMNS,
@@ -6,23 +7,10 @@ import {
 } from "./abilities";
 import { rollWeapon, rollNotation, termString } from "./dice";
 import { CLERIC_SPELLS, MAGIC_USER_SPELLS } from "./spells";
+import { useRoller, RollBanner, AppModal, fallbackNoteFor } from "./rollUi";
+import { CLASS_KEYS, classStats, featuresFor, isClassKey, type ClassChoice } from "./classData";
 import HelpButton, { type TourStep } from "./HelpButton";
 import { useSortable } from "./useSortable";
-
-interface RollState {
-  label: string;
-  outcome: "success" | "fail" | "neutral";
-  rolled?: number;
-  target?: number;
-  detail?: string; // used for plain text states like "Rolling...", "Cannot be turned", "Auto-Turn!"
-  parts?: { label: string; total: number; dice: number[] }[]; // clean multi-row display (weapon attack+damage)
-  fallbackNote?: string;
-}
-
-type ModalState =
-  | { type: "confirm"; message: string; yesLabel?: string; noLabel?: string; resolve: (v: boolean) => void }
-  | { type: "prompt"; message: string; defaultValue: string; resolve: (v: number | null) => void }
-  | { type: "choice"; message: string; options: string[]; resolve: (v: string | null) => void };
 
 function parseXin6(s: string): number {
   const m = s.match(/^\s*(\d+)/);
@@ -38,6 +26,7 @@ interface Props {
   character: Character;
   canEdit: boolean;
   isGM: boolean;
+  me: { id: string; name: string };
   onChange: (c: Character) => void;
   onDelete: () => void;
   onBack: () => void;
@@ -47,13 +36,15 @@ const SHEET_HELP_STEPS = (isGM: boolean): TourStep[] => {
   const steps: TourStep[] = [
     { text: "Right-click any token and assign it to this Character to connect the Character's portrait, HP, & AC." },
     { selector: '[data-tour="color-swatch"]', text: "Select your preferred sheet color." },
-    { selector: '[data-tour="pc-toggle"]', text: "Click this to toggle between PC and NPC." },
+    { selector: '[data-tour="pc-toggle"]', text: "Toggle PC/NPC. Switching to PC lets you assign the sheet to a player." },
+    { selector: '[data-tour="class-select"]', text: "Pick a class to auto-fill saves, attack, HD, and title. Choose Other to enter everything yourself." },
+    { selector: '[data-tour="active-toggle"]', text: "Mark this sheet Inactive to move it to the Inactive list." },
     { selector: '[data-tour="roll-chip"]', text: "Click any of your Abilities to perform a roll-under Ability Check." },
     { selector: '[data-tour="save-chip"]', text: "Click any of your Saves to perform a roll-over Saving Throw." },
     { selector: '[data-tour="encounters-zone"]', text: "Select any of these to roll encounter checks for initiative, reactions, hiring, and loyalty." },
     { selector: '[data-tour="exploration-zone"]', text: "Select any of these to perform x-in-6 chance checks." },
-    { selector: '[data-tour="hp-roll"]', text: "Select this to roll a single Hit Die." },
-    { selector: '[data-tour="max-roll"]', text: "Select this to roll all of your Hit Dice at once." },
+    { selector: '[data-tour="hp-roll"]', text: "Select this to roll one Hit Die for your class." },
+    { selector: '[data-tour="max-roll"]', text: "Select this to roll all of your Hit Dice; you can save the result as Max HP." },
     { selector: '[data-tour="mel-roll"]', text: "Select this to roll a straight Melee Attack Check." },
     { selector: '[data-tour="mis-roll"]', text: "Select this to roll a straight Missile Attack Check." },
     { selector: '[data-tour="weapons-heading"]', text: "Add each of your carried weapons below." },
@@ -116,83 +107,6 @@ function ChipRow({ chip, value, onChange, disabled, narrow, width, onRoll, rollT
   );
 }
 
-function RollBanner({ roll, onDismiss }: { roll: RollState | null; onDismiss: () => void }) {
-  if (!roll) return null;
-  const showOutcome = roll.rolled !== undefined && roll.outcome !== "neutral";
-  return (
-    <div className={`roll-banner ${roll.outcome}`}>
-      <button className="roll-dismiss" onClick={onDismiss} data-tip="Dismiss">&times;</button>
-      <div className="roll-label">{roll.label}</div>
-      {roll.parts ? (
-        <div className="roll-parts">
-          {roll.parts.map((p, i) => (
-            <div className="roll-part" key={i}>
-              <span className="roll-part-label">{p.label}</span>
-              <span className="roll-part-total">{p.total}</span>
-              {p.dice.length > 0 && <span className="roll-part-dice">[{p.dice.join(", ")}]</span>}
-            </div>
-          ))}
-        </div>
-      ) : roll.rolled !== undefined ? (
-        <div className="roll-numbers">
-          {roll.rolled}
-          {roll.target !== undefined && <><span className="vs">vs</span>{roll.target}</>}
-        </div>
-      ) : (
-        <div className="roll-detail-text">{roll.detail}</div>
-      )}
-      {showOutcome && (
-        <div className={`roll-outcome ${roll.outcome}`}>
-          {roll.outcome === "success" ? <>&#10003; SUCCESS</> : <>&#10007; FAIL</>}
-        </div>
-      )}
-      {roll.fallbackNote && <div className="roll-fallback-note">{roll.fallbackNote}</div>}
-    </div>
-  );
-}
-
-function AppModal({ state }: { state: ModalState }) {
-  const [inputVal, setInputVal] = useState(state.type === "prompt" ? state.defaultValue : "");
-
-  return (
-    <div className="modal-backdrop" onClick={() => state.type === "confirm" ? state.resolve(false) : state.type === "prompt" ? state.resolve(null) : state.resolve(null)}>
-      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-        <p className="modal-message">{state.message}</p>
-        {state.type === "prompt" && (
-          <input
-            type="number"
-            className="modal-input"
-            value={inputVal}
-            autoFocus
-            onChange={(e) => setInputVal(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") state.resolve(parseInt(inputVal, 10) || 0); }}
-          />
-        )}
-        <div className="modal-actions">
-          {state.type === "confirm" ? (
-            <>
-              <button className="btn modal-btn" onClick={() => state.resolve(true)}>{state.yesLabel || "Yes"}</button>
-              <button className="btn text modal-btn" onClick={() => state.resolve(false)}>{state.noLabel || "No"}</button>
-            </>
-          ) : state.type === "prompt" ? (
-            <>
-              <button className="btn modal-btn" onClick={() => state.resolve(parseInt(inputVal, 10) || 0)}>Roll</button>
-              <button className="btn text modal-btn" onClick={() => state.resolve(null)}>Cancel</button>
-            </>
-          ) : (
-            <>
-              {state.options.map((opt) => (
-                <button key={opt} className="btn modal-btn" onClick={() => state.resolve(opt)}>{opt}</button>
-              ))}
-              <button className="btn text modal-btn" onClick={() => state.resolve(null)}>Cancel</button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Row2({ children }: { children: React.ReactNode }) {
   return <div className="row-2">{children}</div>;
 }
@@ -201,7 +115,7 @@ function Caption({ children }: { children: React.ReactNode }) {
   return <p className="caption">{children}</p>;
 }
 
-export default function CharacterSheet({ character: c, canEdit, isGM, onChange, onDelete, onBack }: Props) {
+export default function CharacterSheet({ character: c, canEdit, isGM, me, onChange, onDelete, onBack }: Props) {
   const [colorOpen, setColorOpen] = useState(false);
   // Hovering a swatch only previews it (never saved); clicking commits and folds the picker shut.
   const [previewColor, setPreviewColor] = useState<string | null>(null);
@@ -212,6 +126,36 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
   const setAbility = (k: keyof Character["abilities"], v: number) => onChange({ ...c, abilities: { ...c.abilities, [k]: v } });
   const setSave = (k: keyof Character["saves"], v: number) => onChange({ ...c, saves: { ...c.saves, [k]: v } });
 
+  // Class-driven values. With a real class chosen they're computed live from
+  // the class tables; with Other / no class, the stored (editable) values apply.
+  const info = isClassKey(c.classKey) ? classStats(c.classKey, c.level, c.abilities, thiefSkillsForLevel(c.level).HN) : null;
+  const auto = info !== null;
+  const eff = {
+    saves: info?.saves ?? c.saves,
+    attack: info?.attackBonus ?? c.attackBonus,
+    hitDie: info?.hitDie ?? c.hitDie,
+    flatHp: info?.flatHp ?? 2,
+    xpPercent: info?.xpPercent ?? c.xpPercent,
+    listenDoor: info?.listenDoor ?? c.listenDoor,
+    secretDoor: info?.secretDoor ?? c.secretDoor,
+    findTrap: info?.findTrap ?? c.findTrap,
+  };
+  const lockedClass = !canEdit || auto;
+
+  const chooseClass = (choice: ClassChoice) => {
+    if (isClassKey(choice)) {
+      onChange({ ...c, classKey: choice, className: choice, classFeatures: featuresFor(choice) });
+    } else {
+      // Keep every value the class was supplying (so Thief -> Other "Rogue"
+      // retains thief stats) and simply unlock the fields.
+      onChange({
+        ...c, classKey: choice,
+        saves: eff.saves, attackBonus: eff.attack, hitDie: eff.hitDie, xpPercent: eff.xpPercent,
+        listenDoor: eff.listenDoor, secretDoor: eff.secretDoor, findTrap: eff.findTrap,
+      });
+    }
+  };
+
   const strMod = abilityMod(c.abilities.str);
   const intMod = abilityMod(c.abilities.int);
   const dexMod = abilityMod(c.abilities.dex);
@@ -219,50 +163,30 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
   const conMod = abilityMod(c.abilities.con);
   const chaMod = abilityMod(c.abilities.cha);
 
-  const [roll, setRoll] = useState<RollState | null>(null);
-  const [modal, setModal] = useState<ModalState | null>(null);
-
-  // Auto-dismiss the roll result banner after a few seconds so it doesn't
-  // sit there forever waiting to be clicked away - but not while it's
-  // still showing the "Rolling..." placeholder, since that state gets
-  // replaced by the real result a moment later anyway.
-  useEffect(() => {
-    if (!roll || roll.detail === "Rolling...") return;
-    const timer = setTimeout(() => setRoll(null), 6000);
-    return () => clearTimeout(timer);
-  }, [roll]);
-
-  const askYesNo = (message: string, yesLabel?: string, noLabel?: string) =>
-    new Promise<boolean>((resolve) => {
-      setModal({ type: "confirm", message, yesLabel, noLabel, resolve: (v) => { setModal(null); resolve(v); } });
-    });
+  const { roll, setRoll, modal, setModal, askYesNo, rollAndShow } = useRoller();
 
   const askNumber = (message: string, defaultValue = "0") =>
     new Promise<number | null>((resolve) => {
       setModal({ type: "prompt", message, defaultValue, resolve: (v) => { setModal(null); resolve(v); } });
     });
 
-  const askHitDie = () =>
-    new Promise<string | null>((resolve) => {
-      setModal({ type: "choice", message: "Hit Die?", options: ["d4", "d6", "d8"], resolve: (v) => { setModal(null); resolve(v); } });
+  // Everyone in the room right now (OBR only lists connected players), GM included.
+  const askPlayer = async (): Promise<{ id: string; name: string } | null> => {
+    const others = await OBR.party.getPlayers();
+    const roleOf = async (id: string) => (id === me.id ? (isGM ? "GM" : "PLAYER") : others.find((p) => p.id === id)?.role);
+    const list = [{ id: me.id, name: me.name }, ...others.map((p) => ({ id: p.id, name: p.name }))];
+    const players = await Promise.all(list.map(async (p) => ({ ...p, gm: (await roleOf(p.id)) === "GM" })));
+    const id = await new Promise<string | null>((resolve) => {
+      setModal({ type: "player", message: "Assign to Player", players, resolve: (v) => { setModal(null); resolve(v); } });
     });
-
-  const fallbackNoteFor = (reason?: "not-detected" | "timeout") => {
-    if (!reason) return undefined;
-    return reason === "timeout"
-      ? "Dice+ didn't respond in time \u2014 this is a local roll, not Dice+'s result."
-      : "Dice+ not detected in this room \u2014 local roll.";
+    return id ? players.find((p) => p.id === id) ?? null : null;
   };
 
-  const rollAndShow = async (
-    label: string,
-    notation: string,
-    interpret: (total: number) => { outcome: RollState["outcome"]; rolled?: number; target?: number; detail?: string }
-  ) => {
-    setRoll({ label, detail: "Rolling...", outcome: "neutral" });
-    const { total, usedFallback, fallbackReason } = await rollNotation(notation);
-    setRoll({ label, ...interpret(total), fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined });
-    return total;
+  const toggleType = async () => {
+    if (c.type === "PC") { set("type", "NPC"); return; }
+    const picked = await askPlayer();
+    if (!picked) return;
+    onChange({ ...c, type: "PC", ownerId: picked.id, player: picked.name });
   };
 
   // STR/INT/WIS/DEX/CON/CHA: 1d20, success on a roll <= the score itself.
@@ -310,34 +234,31 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
   };
 
   const rollMelMis = (label: string, mod: number) =>
-    rollAndShow(label, `1d20${termString([c.attackBonus, mod])}`, (total) => ({
+    rollAndShow(label, `1d20${termString([eff.attack, mod])}`, (total) => ({
       rolled: total, outcome: "neutral",
     }));
 
-  // HP roll: one Hit Die + CON mod. Never writes into hpCurrent - shown in
-  // the banner only, so a player can't accidentally wipe out a value they
-  // meant to keep by clicking the wrong thing.
+  // HP roll: one Hit Die + CON mod, using the class's Hit Die. Never writes
+  // into hpCurrent - shown in the banner only.
   const rollHP = async () => {
-    const hd = await askHitDie();
-    if (!hd) return;
-    await rollAndShow("HP Roll", `1${hd}${termString([conMod])}`, (total) => ({
+    await rollAndShow("HP Roll", `1d${eff.hitDie}${termString([conMod])}`, (total) => ({
       rolled: total, outcome: "neutral",
     }));
   };
 
   // Max HP roll: one Hit Die + CON mod per level, up to level 9. Past 9th
-  // level, OSE characters stop rolling extra Hit Dice - each level beyond
-  // 9 just adds a flat +2 HP, no CON bonus. Also never writes into hpMax.
+  // level, characters stop rolling extra Hit Dice and gain a flat amount per
+  // level instead (class table), with no CON bonus. Asks whether to write the
+  // result into Max HP first; "No" just rolls.
   const rollMaxHP = async () => {
-    const hd = await askHitDie();
-    if (!hd) return;
+    const setIt = await askYesNo("Set Max HP?");
     const rolledLevels = Math.min(c.level, 9);
-    const flatLevels = Math.max(c.level - 9, 0);
-    const flatBonus = flatLevels * 2;
-    const notation = `${rolledLevels}${hd}${termString([conMod * rolledLevels, flatBonus])}`;
-    await rollAndShow(`Max HP Roll (Lv${c.level})`, notation, (total) => ({
-      rolled: total, outcome: "neutral",
+    const flatBonus = Math.max(c.level - 9, 0) * eff.flatHp;
+    const notation = `${rolledLevels}d${eff.hitDie}${termString([conMod * rolledLevels, flatBonus])}`;
+    const total = await rollAndShow(`Max HP Roll (Lv${c.level})`, notation, (t) => ({
+      rolled: t, outcome: "neutral",
     }));
+    if (setIt) onChange({ ...c, hpMax: Math.max(1, total) });
   };
 
   // Thief skills: percentage skills are d100 roll-under; Hear Noise is x-in-6.
@@ -394,7 +315,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
     const hitAbilityMod = weapon.ranged ? dexMod : strMod;
     const dmgMod = weapon.ranged ? 0 : strMod; // only STR/melee adds to damage - never the attack bonus or DEX
     const magicBonus = parseInt(weapon.bonus, 10) || 0; // magic weapon bonus applies to both attack and damage
-    const { parts, usedFallback, fallbackReason } = await rollWeapon(weapon.name, weapon.damage, c.attackBonus, hitAbilityMod, dmgMod, magicBonus);
+    const { parts, usedFallback, fallbackReason } = await rollWeapon(weapon.name, weapon.damage, eff.attack, hitAbilityMod, dmgMod, magicBonus);
     setRoll({
       label: weapon.name || "Weapon", parts, outcome: "neutral",
       fallbackNote: usedFallback ? fallbackNoteFor(fallbackReason) : undefined,
@@ -405,6 +326,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
     const weapons = c.weapons.map((w, idx) => (idx === i ? { ...w, ...patch } : w));
     set("weapons", weapons);
   };
+  const removeWeapon = (i: number) => set("weapons", c.weapons.filter((_, idx) => idx !== i));
   const addWeaponRow = () => set("weapons", [...c.weapons, { name: "", damage: "", bonus: "", ranged: false }]);
   const weaponSort = useSortable(c.weapons.length, (from, to) => set("weapons", reorder(c.weapons, from, to)));
 
@@ -424,6 +346,13 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
               onClick={() => set("hidden", !c.hidden)}
             >
               {c.hidden ? "\u{1F441}\uFE0F\u200D\u{1F5E8}\uFE0F Hidden" : "\u{1F441}\uFE0F Hide"}
+            </button>
+          )}
+          {(canEdit || isGM) && (
+            <button className="btn text" data-tour="active-toggle"
+              data-tip={c.inactive ? "Inactive \u2014 click to return to the party list" : "Active \u2014 click to move to the Inactive list"}
+              onClick={() => set("inactive", !c.inactive)}>
+              {c.inactive ? "Inactive" : "Active"}
             </button>
           )}
           {canEdit && <button className="btn text danger" onClick={onDelete}>Delete</button>}
@@ -453,7 +382,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             <div className="chip-row">
               <button className="chip chip-toggle" disabled={!canEdit} data-tour="pc-toggle"
                 data-tip="Click to toggle PC / NPC"
-                onClick={() => set("type", c.type === "PC" ? "NPC" : "PC")}>{c.type}</button>
+                onClick={toggleType}>{c.type}</button>
               <div className="box"><input value={c.name} disabled={!canEdit} placeholder="Character name" onChange={(e) => set("name", e.target.value)} /></div>
               <div className="box player-box">
                 <input value={c.player} disabled={!canEdit}
@@ -462,11 +391,23 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
               </div>
             </div>
             <Row2>
-              <ChipRow chip="Class" value={c.className} disabled={!canEdit} onChange={(v) => set("className", v)} />
+              <div className="chip-row">
+                <div className="chip" data-tour="class-select">Class</div>
+                <div className="box class-box">
+                  <select value={c.classKey} disabled={!canEdit} onChange={(e) => chooseClass(e.target.value as ClassChoice)}>
+                    <option value="">Choose...</option>
+                    {CLASS_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
+                    <option value="Other">Other</option>
+                  </select>
+                  {c.classKey === "Other" && (
+                    <input value={c.className} disabled={!canEdit} placeholder="Class name" onChange={(e) => set("className", e.target.value)} />
+                  )}
+                </div>
+              </div>
               <ChipRow chip="AL" value={c.alignment} disabled={!canEdit} onChange={(v) => set("alignment", v)} />
             </Row2>
             <Row2>
-              <ChipRow chip="Title" value={c.title} disabled={!canEdit} onChange={(v) => set("title", v)} />
+              <ChipRow chip="Title" value={c.title || info?.title || ""} disabled={!canEdit} onChange={(v) => set("title", v)} />
               <ChipRow chip="Level" value={c.level} disabled={!canEdit} onChange={(v) => set("level", Number(v) || 1)} />
             </Row2>
           </div>
@@ -491,15 +432,15 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             <div>
               <h3>Saving Throws</h3>
               <Caption>Roll over or equal on 1d20</Caption>
-              <ChipRow chip="D" value={c.saves.death} disabled={!canEdit} onChange={(v) => setSave("death", Number(v) || 0)} onRoll={() => rollSave("Death", c.saves.death, false, true)} rollTitle="Roll Death save" tourId="save-chip" />
+              <ChipRow chip="D" value={eff.saves.death} disabled={lockedClass} onChange={(v) => setSave("death", Number(v) || 0)} onRoll={() => rollSave("Death", eff.saves.death, false, true)} rollTitle="Roll Death save" tourId="save-chip" />
               <Caption>Death, poison</Caption>
-              <ChipRow chip="W" value={c.saves.wands} disabled={!canEdit} onChange={(v) => setSave("wands", Number(v) || 0)} onRoll={() => rollSave("Wands", c.saves.wands, true, false)} rollTitle="Roll Wands save (always vs. magic)" />
+              <ChipRow chip="W" value={eff.saves.wands} disabled={lockedClass} onChange={(v) => setSave("wands", Number(v) || 0)} onRoll={() => rollSave("Wands", eff.saves.wands, true, false)} rollTitle="Roll Wands save (always vs. magic)" />
               <Caption>Magic wands</Caption>
-              <ChipRow chip="P" value={c.saves.paralysis} disabled={!canEdit} onChange={(v) => setSave("paralysis", Number(v) || 0)} onRoll={() => rollSave("Paralysis", c.saves.paralysis, false, true)} rollTitle="Roll Paralysis save" />
+              <ChipRow chip="P" value={eff.saves.paralysis} disabled={lockedClass} onChange={(v) => setSave("paralysis", Number(v) || 0)} onRoll={() => rollSave("Paralysis", eff.saves.paralysis, false, true)} rollTitle="Roll Paralysis save" />
               <Caption>Paralysis, petrification</Caption>
-              <ChipRow chip="B" value={c.saves.breath} disabled={!canEdit} onChange={(v) => setSave("breath", Number(v) || 0)} onRoll={() => rollSave("Breath", c.saves.breath, false, true)} rollTitle="Roll Breath save" />
+              <ChipRow chip="B" value={eff.saves.breath} disabled={lockedClass} onChange={(v) => setSave("breath", Number(v) || 0)} onRoll={() => rollSave("Breath", eff.saves.breath, false, true)} rollTitle="Roll Breath save" />
               <Caption>Breath attacks</Caption>
-              <ChipRow chip="S" value={c.saves.spells} disabled={!canEdit} onChange={(v) => setSave("spells", Number(v) || 0)} onRoll={() => rollSave("Spells", c.saves.spells, true, false)} rollTitle="Roll Spells save (always vs. magic)" />
+              <ChipRow chip="S" value={eff.saves.spells} disabled={lockedClass} onChange={(v) => setSave("spells", Number(v) || 0)} onRoll={() => rollSave("Spells", eff.saves.spells, true, false)} rollTitle="Roll Spells save (always vs. magic)" />
               <Caption>Spells, rods, staves</Caption>
               <ChipRow chip="&plusmn;" value={fmtMod(wisMod)} disabled />
               <Caption>WIS modifier to saves vs magic</Caption>
@@ -514,12 +455,18 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             </Row2>
             <Row2>
               <ChipRow chip="AC" value={c.ac} disabled={!canEdit} onChange={(v) => set("ac", Number(v) || 0)} />
-              <ChipRow chip="Att" value={fmtMod(c.attackBonus)} disabled={!canEdit} onChange={(v) => set("attackBonus", Number(v.replace("+", "")) || 0)} />
+              <ChipRow chip="Att" value={fmtMod(eff.attack)} disabled={lockedClass} onChange={(v) => set("attackBonus", Number(v.replace("+", "")) || 0)} />
             </Row2>
             <Row2>
               <Caption>Unarmored: 10 + DEX Modifier ({unarmoredAC(c.abilities.dex)})</Caption>
               <Caption>Attack Bonus</Caption>
             </Row2>
+            <Row2>
+              <ChipRow chip="HD" value={`d${eff.hitDie}`} disabled={lockedClass}
+                onChange={(v) => { const n = parseInt(v.replace(/[^\d]/g, "").replace(/^1(?=\d)/, ""), 10); if (n > 0) set("hitDie", n); }} />
+              <div />
+            </Row2>
+            <Row2><Caption>Hit Die</Caption><div /></Row2>
             <Row2>
               <ChipRow chip="Mel" value={fmtMod(strMod)} disabled onRoll={() => rollMelMis("Melee Attack", strMod)} rollTitle="Roll d20 + Att + STR" tourId="mel-roll" />
               <ChipRow chip="Mis" value={fmtMod(dexMod)} disabled onRoll={() => rollMelMis("Missile Attack", dexMod)} rollTitle="Roll d20 + Att + DEX" tourId="mis-roll" />
@@ -536,9 +483,10 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
               <span className="mem-head-spacer" />
               <span className="caption" style={{ margin: 0, flex: 1 }}>Weapon</span>
               <span className="caption" style={{ margin: 0, width: 56, textAlign: "center" }}>Damage</span>
-              <span className="caption" style={{ margin: 0, width: 40, textAlign: "center" }}>Bonus</span>
+              <span className="caption" style={{ margin: 0, width: 40, textAlign: "center" }}>Magic</span>
               <span className="caption" style={{ margin: 0, width: 52 }}></span>
               <span className="caption" style={{ margin: 0, width: 48 }}></span>
+              <span className="caption" style={{ margin: 0, width: 18 }}></span>
             </div>
             {c.weapons.map((w, i) => {
               const r = weaponSort.rowProps(i);
@@ -556,6 +504,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
                   {w.ranged ? "MIS" : "MEL"}
                 </button>
                 <button className="roll-btn atk-btn" data-tour={i === 0 ? "weapon-roll" : undefined} data-tip="Roll attack + damage" onClick={() => doRoll(w)}>ATK</button>
+                {canEdit ? <button className="row-remove" data-tip="Remove weapon" onClick={() => removeWeapon(i)}>&times;</button> : <span style={{ width: 18 }} />}
               </div>
               );
             })}
@@ -613,13 +562,13 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
             <h3>Exploration</h3>
             <Caption>(x-in-6)</Caption>
             <Row2>
-              <ChipRow chip="LD" value={c.listenDoor} disabled={!canEdit} onChange={(v) => set("listenDoor", v)} onRoll={() => rollXin6("Listen Door", c.listenDoor)} rollTitle="Roll 1d6 vs threshold" />
+              <ChipRow chip="LD" value={eff.listenDoor} disabled={lockedClass} onChange={(v) => set("listenDoor", v)} onRoll={() => rollXin6("Listen Door", eff.listenDoor)} rollTitle="Roll 1d6 vs threshold" />
               <ChipRow chip="OD" value={c.openDoor || strOpenDoors(c.abilities.str)} disabled={!canEdit} onChange={(v) => set("openDoor", v)} onRoll={() => rollXin6("Open Door", c.openDoor || strOpenDoors(c.abilities.str))} rollTitle="Roll 1d6 vs threshold" />
             </Row2>
             <Row2><Caption>Listen door</Caption><Caption>Open door</Caption></Row2>
             <Row2>
-              <ChipRow chip="SD" value={c.secretDoor} disabled={!canEdit} onChange={(v) => set("secretDoor", v)} onRoll={() => rollXin6("Secret Door", c.secretDoor)} rollTitle="Roll 1d6 vs threshold" />
-              <ChipRow chip="FT" value={c.findTrap} disabled={!canEdit} onChange={(v) => set("findTrap", v)} onRoll={() => rollXin6("Find Trap", c.findTrap)} rollTitle="Roll 1d6 vs threshold" />
+              <ChipRow chip="SD" value={eff.secretDoor} disabled={lockedClass} onChange={(v) => set("secretDoor", v)} onRoll={() => rollXin6("Secret Door", eff.secretDoor)} rollTitle="Roll 1d6 vs threshold" />
+              <ChipRow chip="FT" value={eff.findTrap} disabled={lockedClass} onChange={(v) => set("findTrap", v)} onRoll={() => rollXin6("Find Trap", eff.findTrap)} rollTitle="Roll 1d6 vs threshold" />
             </Row2>
             <Row2><Caption>Secret doors</Caption><Caption>Find traps</Caption></Row2>
           </div>
@@ -684,7 +633,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, onChange, 
       <div className="footer-xp">
         <ChipRow chip="XP" value={c.xp} disabled={!canEdit} onChange={(v) => set("xp", Number(v) || 0)} tourId="xp-roll" />
         <ChipRow chip="Next" value={c.xpNext} disabled={!canEdit} onChange={(v) => set("xpNext", Number(v) || 0)} tourId="next-roll" />
-        <ChipRow chip="%" value={c.xpPercent} disabled={!canEdit} onChange={(v) => set("xpPercent", v)} tourId="percent-roll" />
+        <ChipRow chip="%" value={eff.xpPercent} disabled={lockedClass} onChange={(v) => set("xpPercent", v)} tourId="percent-roll" />
       </div>
 
       <div className="brand-footer">
@@ -1212,9 +1161,9 @@ function SpellReferenceList({ list }: { list: string[][] }) {
           {levels.map((i) => (
             <div key={i} className="spell-reference-level">
               <div className="spell-reference-level-label">Level {i}</div>
-              <ul>
+              <ol>
                 {[...list[i]].sort((a, b) => a.localeCompare(b)).map((name) => <li key={name}>{name}</li>)}
-              </ul>
+              </ol>
             </div>
           ))}
         </div>

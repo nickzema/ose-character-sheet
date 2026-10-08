@@ -1,5 +1,4 @@
 import OBR, { isImage } from "@owlbear-rodeo/sdk";
-import type { Character } from "./types";
 
 // Confirmed from Stat Bubbles for D&D's own source (SeamusFinlayson/Bubbles-for-Owlbear-Rodeo):
 // getPluginId("metadata") = `com.owlbear-rodeo-bubbles-extension/metadata`, and inside that
@@ -14,7 +13,15 @@ const STAT_BUBBLES_KEY = "com.owlbear-rodeo-bubbles-extension/metadata";
  * One-way only: this sheet is the source of truth - editing the token or the
  * bubble directly does not flow back.
  */
-export async function syncLinkedToken(character: Character) {
+export interface LinkedStats {
+  linkedTokenId: string | null;
+  name: string;
+  hpCurrent: number;
+  hpMax: number;
+  ac: number;
+}
+
+export async function syncLinkedToken(character: LinkedStats) {
   if (!character.linkedTokenId) return;
   const name = character.name.trim();
   try {
