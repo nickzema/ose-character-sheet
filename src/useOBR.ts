@@ -155,6 +155,27 @@ export async function deleteKeys(keys: string[]): Promise<boolean> {
 }
 
 /**
+ * Owlbear never removes a deleted key (it only lets us empty it), so every new
+ * item would otherwise leave a permanent dead key behind. Reuse an emptied key
+ * for the next new item instead, so repeated create/delete costs nothing extra.
+ */
+const claimed = new Set<string>();
+export async function claimId(prefix: string): Promise<string> {
+  try {
+    const m = await OBR.room.getMetadata();
+    for (const [k, v] of Object.entries(m)) {
+      if (!k.startsWith(prefix)) continue;
+      const dead = v === null || v === 0 || (!!v && typeof v === "object" && !!(v as { deleted?: boolean }).deleted);
+      const id = k.slice(prefix.length);
+      if (dead && !claimed.has(id)) { claimed.add(id); return id; }
+    }
+  } catch { /* fall back to a fresh id */ }
+  return crypto.randomUUID();
+}
+export const claimCharacterId = () => claimId(CHAR_PREFIX);
+export const claimRetainerId = () => claimId(RET_PREFIX);
+
+/**
  * A list of items kept in room metadata, one key per item. Edits only touch
  * that item's key, and the newest updatedAt wins, so two people editing
  * different items (or the same one at different moments) never overwrite
@@ -251,7 +272,7 @@ function useSyncedList<T extends Stored>(opts: {
   const save = (next: T, isNew = false) => {
     const stamped = stamp(next);
     localRef.current.set(stamped.id, stamped);
-    if (isNew) unseenRef.current.add(stamped.id);
+    if (isNew) { unseenRef.current.add(stamped.id); deletedRef.current.delete(stamped.id); }
     publish();
     return write([stamped]).then((ok) => {
       // A brand-new item that couldn't be stored must not linger on screen as if it were saved.
@@ -312,15 +333,15 @@ export function useRetainers() {
 
 /** Bytes of room metadata in use (Owlbear caps it at 16 kB, shared by every extension). */
 export const ROOM_LIMIT = 16384;
-export interface RoomUsage { total: number; sheets: number; retainers: number; deleted: number; legacy: number; other: number; perItem: Record<string, number>; retKeys: { id: string; n: number; label: string }[] }
+export interface RoomUsage { total: number; sheets: number; retainers: number; deleted: number; legacy: number; other: number; dead: number; perItem: Record<string, number>; retKeys: { id: string; n: number; label: string }[] }
 const bytesOf = (v: unknown) => new TextEncoder().encode(JSON.stringify(v) ?? "").length;
 export function measureRoom(m: Record<string, unknown>): RoomUsage {
-  const u: RoomUsage = { total: 0, sheets: 0, retainers: 0, deleted: 0, legacy: 0, other: 0, perItem: {}, retKeys: [] };
+  const u: RoomUsage = { total: 0, sheets: 0, retainers: 0, deleted: 0, legacy: 0, other: 0, dead: 0, perItem: {}, retKeys: [] };
   for (const [k, v] of Object.entries(m)) {
     const n = k.length + bytesOf(v) + 6;
     u.total += n;
     const tomb = !!v && typeof v === "object" && (v as { deleted?: boolean }).deleted;
-    if (tomb || v === null || v === 0) u.deleted += n;
+    if (tomb || v === null || v === 0) { u.deleted += n; u.dead++; }
     else if (k === LEGACY_KEY) u.legacy += n;
     else if (k.startsWith(CHAR_PREFIX)) { u.sheets += n; u.perItem[k.slice(CHAR_PREFIX.length)] = n; }
     else if (k.startsWith(RET_PREFIX)) {

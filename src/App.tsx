@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import { usePlayer, useRoster, useRetainers, useRoomUsage, repackRoom, ROOM_LIMIT, retKey, deleteKeys } from "./useOBR";
+import { usePlayer, useRoster, useRetainers, useRoomUsage, repackRoom, ROOM_LIMIT, retKey, deleteKeys, claimCharacterId, claimRetainerId } from "./useOBR";
 import { blankCharacter, type Character } from "./types";
 import { generateRetainer } from "./retainerGen";
 import type { Retainer } from "./retainerTypes";
@@ -69,7 +69,7 @@ export default function App() {
   const isGM = player.role === "GM";
 
   const addCharacter = async () => {
-    const c = blankCharacter(crypto.randomUUID(), player.id);
+    const c = blankCharacter(await claimCharacterId(), player.id);
     // A GM's new sheet starts as an NPC; a player's starts as their own PC.
     if (isGM) c.type = "NPC";
     else c.player = player.name;
@@ -104,7 +104,7 @@ export default function App() {
     syncLinkedToken(r);
   };
 
-  const generate = () => {
+  const generate = async () => {
     if (!isGM) return;
     if (usage && usage.total + 900 > ROOM_LIMIT) {
       window.alert("Room storage is nearly full - delete a retainer or sheet before generating another.");
@@ -112,7 +112,7 @@ export default function App() {
     }
     const next = retainers.reduce((m, r) => Math.max(m, r.order), -1) + 1;
     const top = roster.reduce((m, c) => (c.type === "PC" && !c.inactive ? Math.max(m, c.level) : m), 0);
-    saveRetainer(generateRetainer(next, top + 1), true);
+    saveRetainer({ ...generateRetainer(next, top + 1), id: await claimRetainerId() }, true);
   };
 
   // Players never see hidden characters, anywhere in this list - not just
@@ -132,7 +132,7 @@ export default function App() {
             <div className="room-usage-detail">
               <div>Sheets {kb(usage.sheets)}</div>
               <div>Retainers {kb(usage.retainers)}</div>
-              <div>Deleted {kb(usage.deleted)}</div>
+              <div>Deleted {kb(usage.deleted)} ({usage.dead} reusable)</div>
               <div>Old data {kb(usage.legacy)}</div>
               <div>Other extensions {kb(usage.other)}</div>
               {usage.retKeys.map((k) => {
