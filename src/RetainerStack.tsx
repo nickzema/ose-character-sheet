@@ -326,14 +326,11 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
           {canGM && <button className="rt-add" onClick={() => onSave({ ...r, weapons: [...r.weapons, { name: "", damage: "", bonus: "", ranged: false }] })}>+ Weapon</button>}
         </div>
 
-        <div className="rt-line">
-          <span className="rt-lbl">Save</span>
+        <div className="rt-grid">
           {SAVE_LABELS.map((s) => (
             <button className="rt-roll rt-val" key={s.key} onClick={() => rollSave(r, s)}><span className="rt-lbl">{s.chip}</span> {r.saves[s.key]}</button>
           ))}
-        </div>
-
-        <div className="rt-line">
+          <span className="rt-val rt-magic-mod" data-tip="WIS modifier to saves vs. magic"><span className="rt-lbl">M</span> {fmtMod(abilityMod(r.abilities.wis))}</span>
           {(Object.keys(r.abilities) as (keyof Retainer["abilities"])[]).map((k) => (
             <button className="rt-roll rt-val" key={k} onClick={() => rollAbility(r, k)}><span className="rt-lbl">{k.toUpperCase()}</span> {r.abilities[k]}</button>
           ))}

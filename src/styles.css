@@ -532,3 +532,6 @@ body.is-dragging [data-tip]::after{ display:none !important; }
 .rt-lvcls .rt-lv{ font:inherit; width:1.5em; text-align:center; border:0; background:transparent; color:inherit; padding:0; }
 .rt-lvcls .rt-lv:focus{ outline:none; background:rgba(17,17,17,.12); }
 .rt-lvcls .rt-lv:disabled{ opacity:1; -webkit-text-fill-color:currentColor; }
+
+.rt-grid{ display:grid; grid-template-columns:repeat(6,1fr); gap:3px 4px; border-top:1.5px solid var(--ink); padding-top:3px; margin:2px 0; flex:none; }
+.rt-grid .rt-roll,.rt-grid .rt-magic-mod{ white-space:nowrap; padding:0 2px; }
