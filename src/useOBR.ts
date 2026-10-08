@@ -183,12 +183,13 @@ function useSyncedList<T extends Stored>(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const write = async (batch: T[]) => {
+  const write = async (batch: T[]): Promise<boolean> => {
     const update: Record<string, unknown> = {};
     for (const it of batch) update[key(it.id)] = opts.pack(it);
     try {
       await OBR.room.setMetadata(update);
       setSaveWarning(null);
+      return true;
     } catch {
       // Room metadata is capped (16kB total, shared by every extension in
       // the room). Retry with the largest optional field stripped.
@@ -200,11 +201,12 @@ function useSyncedList<T extends Stored>(opts: {
             localRef.current.set(stripped.id, stripped);
             publish();
             setSaveWarning("Room storage is full, so manually-uploaded portraits couldn't be saved. Assign a token to a character instead for a portrait that persists.");
-            return;
+            return true;
           } catch { /* fall through */ }
         }
       }
       setSaveWarning(fullWarning);
+      return false;
     }
   };
 
@@ -218,7 +220,14 @@ function useSyncedList<T extends Stored>(opts: {
     localRef.current.set(stamped.id, stamped);
     if (isNew) unseenRef.current.add(stamped.id);
     publish();
-    return write([stamped]);
+    return write([stamped]).then((ok) => {
+      // A brand-new item that couldn't be stored must not linger on screen as if it were saved.
+      if (!ok && isNew) {
+        localRef.current.delete(stamped.id);
+        unseenRef.current.delete(stamped.id);
+        publish();
+      }
+    });
   };
 
   // Several items in one room write (e.g. reordering).
@@ -235,7 +244,8 @@ function useSyncedList<T extends Stored>(opts: {
     unseenRef.current.delete(id);
     publish();
     try {
-      await OBR.room.setMetadata({ [key(id)]: { id, deleted: true, updatedAt: Date.now() } });
+      // null frees the key's space; older clients' tombstones are still honoured on read.
+      await OBR.room.setMetadata({ [key(id)]: null });
     } catch {
       setSaveWarning("Couldn't delete - try again.");
     }
@@ -270,18 +280,33 @@ export function useRetainers() {
 
 /** Bytes of room metadata in use (Owlbear caps it at 16 kB, shared by every extension). */
 export const ROOM_LIMIT = 16384;
+export interface RoomUsage { total: number; sheets: number; retainers: number; deleted: number; legacy: number; other: number }
+const bytesOf = (v: unknown) => new TextEncoder().encode(JSON.stringify(v) ?? "").length;
+export function measureRoom(m: Record<string, unknown>): RoomUsage {
+  const u: RoomUsage = { total: 0, sheets: 0, retainers: 0, deleted: 0, legacy: 0, other: 0 };
+  for (const [k, v] of Object.entries(m)) {
+    const n = k.length + bytesOf(v) + 6;
+    u.total += n;
+    const tomb = !!v && typeof v === "object" && (v as { deleted?: boolean }).deleted;
+    if (tomb || v === null) u.deleted += n;
+    else if (k === LEGACY_KEY) u.legacy += n;
+    else if (k.startsWith(CHAR_PREFIX)) u.sheets += n;
+    else if (k.startsWith(RET_PREFIX)) u.retainers += n;
+    else u.other += n;
+  }
+  return u;
+}
 export function useRoomUsage() {
-  const [bytes, setBytes] = useState<number | null>(null);
+  const [usage, setUsage] = useState<RoomUsage | null>(null);
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
-    const measure = (m: Record<string, unknown>) => setBytes(new TextEncoder().encode(JSON.stringify(m)).length);
     OBR.onReady(async () => {
-      measure(await OBR.room.getMetadata());
-      unsubscribe = OBR.room.onMetadataChange(measure);
+      setUsage(measureRoom(await OBR.room.getMetadata()));
+      unsubscribe = OBR.room.onMetadataChange((m) => setUsage(measureRoom(m)));
     });
     return () => unsubscribe?.();
   }, []);
-  return bytes;
+  return usage;
 }
 
 /** GM, once per load: pack any still-unpacked items in place (same content and timestamps). */
@@ -291,9 +316,11 @@ export async function repackRoom() {
   for (const [k, v] of Object.entries(m)) {
     if (!v || typeof v !== "object") continue;
     const o = v as Record<string, unknown>;
+    if (o.deleted && (k.startsWith(CHAR_PREFIX) || k.startsWith(RET_PREFIX))) { update[k] = null; continue; } // sweep tombstones
     if (o.deleted || typeof o.z === "string" || typeof o.id !== "string") continue;
     if (k.startsWith(CHAR_PREFIX)) update[k] = packCharacter(healCharacter(o as Partial<Character> & { id: string }));
     else if (k.startsWith(RET_PREFIX)) update[k] = packRetainer(healRetainer(o as Partial<Retainer> & { id: string }));
   }
+  if (Array.isArray(m[LEGACY_KEY]) && (m[LEGACY_KEY] as unknown[]).length === 0) update[LEGACY_KEY] = null;
   if (Object.keys(update).length) await OBR.room.setMetadata(update);
 }

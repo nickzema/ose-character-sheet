@@ -4,7 +4,8 @@
 .app{ min-height:100vh; }
 .loading{ padding:24px; text-align:center; color:var(--caption); }
 .save-warning{
-  background:#a15b00; color:#fff; font-family:'Oswald',sans-serif; font-size:12px;
+  position:sticky; top:0; z-index:500;
+  background:#a8321f; color:#fff; font-family:'Oswald',sans-serif; font-size:13px; font-weight:600;
   padding:8px 12px; text-align:center;
 }
 .row-2{ display:flex; gap:8px; min-width:0; }
@@ -536,5 +537,5 @@ body.is-dragging [data-tip]::after{ display:none !important; }
 .rt-grid{ display:grid; grid-template-columns:repeat(6,1fr); gap:3px 4px; border-top:1.5px solid var(--ink); padding-top:3px; margin:2px 0; flex:none; }
 .rt-grid .rt-roll,.rt-grid .rt-magic-mod{ white-space:nowrap; padding:0 2px; }
 .rt-card:not(.sel) .rt-col{ pointer-events:none; overflow:hidden; }
-.room-usage{ font-family:'Oswald',sans-serif; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--caption); text-align:right; margin:4px 0; }
+.room-usage{ font-family:'Oswald',sans-serif; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--caption); text-align:right; margin:10px 0 2px; padding-right:22px; }
 .room-usage.full{ color:#a8321f; font-weight:600; }

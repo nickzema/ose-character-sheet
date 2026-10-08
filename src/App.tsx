@@ -31,6 +31,7 @@ export default function App() {
   const { retainers, saveRetainer, saveRetainers, deleteRetainer, retainerWarning } = useRetainers();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const usage = useRoomUsage();
+  const kb = (n: number) => `${(n / 1024).toFixed(1)}`;
   const [view, setView] = useState<"party" | "inactive">("party");
 
   useEffect(() => {
@@ -104,6 +105,10 @@ export default function App() {
 
   const generate = () => {
     if (!isGM) return;
+    if (usage && usage.total + 900 > ROOM_LIMIT) {
+      window.alert("Room storage is nearly full - delete a retainer or sheet before generating another.");
+      return;
+    }
     const next = retainers.reduce((m, r) => Math.max(m, r.order), -1) + 1;
     const top = roster.reduce((m, c) => (c.type === "PC" && !c.inactive ? Math.max(m, c.level) : m), 0);
     saveRetainer(generateRetainer(next, top + 1), true);
@@ -120,7 +125,10 @@ export default function App() {
   return (
     <div className="app">
       {isGM && usage !== null && (
-        <div className={`room-usage${usage > ROOM_LIMIT * 0.9 ? " full" : ""}`}>Room storage {(usage / 1024).toFixed(1)} / 16 kB</div>
+        <div className={`room-usage${usage.total > ROOM_LIMIT * 0.9 ? " full" : ""}`}
+          data-tip={`Sheets ${kb(usage.sheets)} \u00b7 Retainers ${kb(usage.retainers)} \u00b7 Deleted ${kb(usage.deleted)} \u00b7 Old data ${kb(usage.legacy)} \u00b7 Other extensions ${kb(usage.other)}`}>
+          Room storage {kb(usage.total)} / 16 kB
+        </div>
       )}
       {(saveWarning || retainerWarning) && <div className="save-warning">{saveWarning || retainerWarning}</div>}
       {selected ? (
