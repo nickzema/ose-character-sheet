@@ -94,7 +94,7 @@ export async function migrateLegacy() {
   const metadata = await OBR.room.getMetadata();
   const legacy = metadata[LEGACY_KEY];
   if (!Array.isArray(legacy)) return;
-  const update: Record<string, unknown> = { [LEGACY_KEY]: null };
+  const update: Record<string, unknown> = { [LEGACY_KEY]: undefined };
   (legacy as (Partial<Character> & { id: string })[]).forEach((raw, i) => {
     if (!raw?.id || metadata[charKey(raw.id)]) return;
     update[charKey(raw.id)] = { ...raw, createdAt: raw.createdAt ?? i, updatedAt: raw.updatedAt ?? 1 };
@@ -244,8 +244,8 @@ function useSyncedList<T extends Stored>(opts: {
     unseenRef.current.delete(id);
     publish();
     try {
-      // null frees the key's space; older clients' tombstones are still honoured on read.
-      await OBR.room.setMetadata({ [key(id)]: null });
+      // undefined removes the key outright (null would leave the key behind, still costing space).
+      await OBR.room.setMetadata({ [key(id)]: undefined });
     } catch {
       setSaveWarning("Couldn't delete - try again.");
     }
@@ -314,13 +314,14 @@ export async function repackRoom() {
   const m = await OBR.room.getMetadata();
   const update: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(m)) {
+    if (v === null && (k === LEGACY_KEY || k.startsWith(CHAR_PREFIX) || k.startsWith(RET_PREFIX))) { update[k] = undefined; continue; } // leftover empty keys
     if (!v || typeof v !== "object") continue;
     const o = v as Record<string, unknown>;
-    if (o.deleted && (k.startsWith(CHAR_PREFIX) || k.startsWith(RET_PREFIX))) { update[k] = null; continue; } // sweep tombstones
+    if (o.deleted && (k.startsWith(CHAR_PREFIX) || k.startsWith(RET_PREFIX))) { update[k] = undefined; continue; } // sweep tombstones
     if (o.deleted || typeof o.z === "string" || typeof o.id !== "string") continue;
     if (k.startsWith(CHAR_PREFIX)) update[k] = packCharacter(healCharacter(o as Partial<Character> & { id: string }));
     else if (k.startsWith(RET_PREFIX)) update[k] = packRetainer(healRetainer(o as Partial<Retainer> & { id: string }));
   }
-  if (Array.isArray(m[LEGACY_KEY]) && (m[LEGACY_KEY] as unknown[]).length === 0) update[LEGACY_KEY] = null;
+  if (Array.isArray(m[LEGACY_KEY]) && (m[LEGACY_KEY] as unknown[]).length === 0) update[LEGACY_KEY] = undefined;
   if (Object.keys(update).length) await OBR.room.setMetadata(update);
 }
