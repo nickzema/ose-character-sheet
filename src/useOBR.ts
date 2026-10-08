@@ -127,17 +127,30 @@ function readTombstones(metadata: Record<string, unknown>, prefix: string): Map<
  * and stop when every key is gone (or reduced to an empty value, the smallest
  * Owlbear will keep). Returns false if any key still holds data.
  */
+export let lastDeleteLog = "";
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function deleteKeys(keys: string[]): Promise<boolean> {
   let remaining = keys;
-  for (const value of [undefined, null, 0]) {
+  const log: string[] = [];
+  const settled = (m: Record<string, unknown>, k: string) => !(k in m) || m[k] === null || m[k] === 0;
+  for (const [name, value] of [["undefined", undefined], ["null", null], ["0", 0]] as [string, unknown][]) {
     if (!remaining.length) break;
     const update: Record<string, unknown> = {};
     remaining.forEach((k) => { update[k] = value; });
-    try { await OBR.room.setMetadata(update); } catch { /* try the next method */ }
-    let m: Record<string, unknown>;
-    try { m = await OBR.room.getMetadata(); } catch { return false; }
-    remaining = remaining.filter((k) => k in m && m[k] !== null && m[k] !== 0);
+    try { await OBR.room.setMetadata(update); } catch (e) { log.push(`${name}: write error ${(e as Error)?.message ?? e}`); continue; }
+    // The room can take a moment to reflect a write, so poll before judging it.
+    for (let i = 0; i < 10; i++) {
+      await sleep(i === 0 ? 50 : 200);
+      try {
+        const m = await OBR.room.getMetadata();
+        remaining = remaining.filter((k) => !settled(m, k));
+      } catch { /* keep polling */ }
+      if (!remaining.length) break;
+    }
+    if (remaining.length) log.push(`${name}: still stored`);
+    else log.push(`${name}: ok`);
   }
+  lastDeleteLog = log.join("; ");
   return remaining.length === 0;
 }
 
@@ -264,7 +277,10 @@ function useSyncedList<T extends Stored>(opts: {
     unseenRef.current.delete(id);
     publish();
     // Removed for real (verified); the item stays hidden here either way.
-    if (!(await deleteKeys([key(id)]))) setSaveWarning("Couldn't fully delete that - its data may still be taking up room storage.");
+    if (!(await deleteKeys([key(id)]))) {
+      setSaveWarning(`Couldn't fully delete that (${lastDeleteLog}).`);
+      setTimeout(() => setSaveWarning(null), 8000); // a one-off notice, not a permanent banner
+    }
   };
 
   return { items, save, saveMany, remove, saveWarning };
