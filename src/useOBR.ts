@@ -280,17 +280,17 @@ export function useRetainers() {
 
 /** Bytes of room metadata in use (Owlbear caps it at 16 kB, shared by every extension). */
 export const ROOM_LIMIT = 16384;
-export interface RoomUsage { total: number; sheets: number; retainers: number; deleted: number; legacy: number; other: number }
+export interface RoomUsage { total: number; sheets: number; retainers: number; deleted: number; legacy: number; other: number; perItem: Record<string, number> }
 const bytesOf = (v: unknown) => new TextEncoder().encode(JSON.stringify(v) ?? "").length;
 export function measureRoom(m: Record<string, unknown>): RoomUsage {
-  const u: RoomUsage = { total: 0, sheets: 0, retainers: 0, deleted: 0, legacy: 0, other: 0 };
+  const u: RoomUsage = { total: 0, sheets: 0, retainers: 0, deleted: 0, legacy: 0, other: 0, perItem: {} };
   for (const [k, v] of Object.entries(m)) {
     const n = k.length + bytesOf(v) + 6;
     u.total += n;
     const tomb = !!v && typeof v === "object" && (v as { deleted?: boolean }).deleted;
     if (tomb || v === null) u.deleted += n;
     else if (k === LEGACY_KEY) u.legacy += n;
-    else if (k.startsWith(CHAR_PREFIX)) u.sheets += n;
+    else if (k.startsWith(CHAR_PREFIX)) { u.sheets += n; u.perItem[k.slice(CHAR_PREFIX.length)] = n; }
     else if (k.startsWith(RET_PREFIX)) u.retainers += n;
     else u.other += n;
   }

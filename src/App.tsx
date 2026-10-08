@@ -32,6 +32,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const usage = useRoomUsage();
   const kb = (n: number) => `${(n / 1024).toFixed(1)}`;
+  const [usageOpen, setUsageOpen] = useState(false);
   const [view, setView] = useState<"party" | "inactive">("party");
 
   useEffect(() => {
@@ -125,9 +126,18 @@ export default function App() {
   return (
     <div className="app">
       {isGM && usage !== null && (
-        <div className={`room-usage${usage.total > ROOM_LIMIT * 0.9 ? " full" : ""}`}
-          data-tip={`Sheets ${kb(usage.sheets)} \u00b7 Retainers ${kb(usage.retainers)} \u00b7 Deleted ${kb(usage.deleted)} \u00b7 Old data ${kb(usage.legacy)} \u00b7 Other extensions ${kb(usage.other)}`}>
-          Room storage {kb(usage.total)} / 16 kB
+        <div className={`room-usage${usage.total > ROOM_LIMIT * 0.9 ? " full" : ""}`} onClick={() => setUsageOpen((v) => !v)}>
+          Room storage {kb(usage.total)} / 16 kB {usageOpen ? "\u25B4" : "\u25BE"}
+          {usageOpen && (
+            <div className="room-usage-detail">
+              <div>Sheets {kb(usage.sheets)}</div>
+              <div>Retainers {kb(usage.retainers)}</div>
+              <div>Deleted {kb(usage.deleted)}</div>
+              <div>Old data {kb(usage.legacy)}</div>
+              <div>Other extensions {kb(usage.other)}</div>
+              {roster.map((c) => <div key={c.id} className="sub">{c.name || "Unnamed"} {kb(usage.perItem[c.id] ?? 0)}</div>)}
+            </div>
+          )}
         </div>
       )}
       {(saveWarning || retainerWarning) && <div className="save-warning">{saveWarning || retainerWarning}</div>}
