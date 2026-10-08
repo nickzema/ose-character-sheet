@@ -16,6 +16,7 @@ export type ModalState =
   | { type: "confirm"; message: string; yesLabel?: string; noLabel?: string; resolve: (v: boolean) => void }
   | { type: "prompt"; message: string; defaultValue: string; resolve: (v: number | null) => void }
   | { type: "choice"; message: string; options: string[]; resolve: (v: string | null) => void }
+  | { type: "armor"; message: string; resolve: (v: { base: number; shield: boolean } | null) => void }
   | { type: "player"; message: string; players: { id: string; name: string; gm: boolean }[]; resolve: (v: string | null) => void };
 
 export function RollBanner({ roll, onDismiss }: { roll: RollState | null; onDismiss: () => void }) {
@@ -55,6 +56,8 @@ export function RollBanner({ roll, onDismiss }: { roll: RollState | null; onDism
 
 export function AppModal({ state }: { state: ModalState }) {
   const [inputVal, setInputVal] = useState(state.type === "prompt" ? state.defaultValue : "");
+  const [armor, setArmor] = useState(10);
+  const [shield, setShield] = useState(false);
 
   return (
     <div className="modal-backdrop" onClick={() => state.type === "confirm" ? state.resolve(false) : state.type === "prompt" ? state.resolve(null) : state.resolve(null)}>
@@ -81,6 +84,17 @@ export function AppModal({ state }: { state: ModalState }) {
               <button className="btn modal-btn" onClick={() => state.resolve(parseInt(inputVal, 10) || 0)}>Roll</button>
               <button className="btn text modal-btn" onClick={() => state.resolve(null)}>Cancel</button>
             </>
+          ) : state.type === "armor" ? (
+            <div className="player-pick">
+              <div className="armor-opts">
+                {([["None", 10], ["Leather (12)", 12], ["Chain (14)", 14], ["Plate (16)", 16]] as [string, number][]).map(([label, v]) => (
+                  <button key={v} className={`btn modal-btn${armor === v ? " rt-on" : ""}`} onClick={() => setArmor(v)}>{label}</button>
+                ))}
+              </div>
+              <label className="armor-shield"><input type="checkbox" checked={shield} onChange={(e) => setShield(e.target.checked)} /> Shield (+1)</label>
+              <button className="btn modal-btn" onClick={() => state.resolve({ base: armor, shield })}>Set AC</button>
+              <button className="btn text modal-btn" onClick={() => state.resolve(null)}>Cancel</button>
+            </div>
           ) : state.type === "player" ? (
             <div className="player-pick">
               {state.players.map((p) => (

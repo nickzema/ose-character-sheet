@@ -456,7 +456,7 @@ body.is-dragging [data-tip]::after{ display:none !important; }
 .rt-card.sel{ transform:translateY(-38px) rotate(0deg) !important; box-shadow:5px 7px 0 rgba(17,17,17,.3); }
 .rt-card.drag{ transform:translate(var(--dx),var(--dy)) !important; transition:none !important; cursor:grabbing; box-shadow:8px 10px 0 rgba(17,17,17,.3); }
 .rt-card.can-drag{ cursor:grab; }
-.rt-card.hid{ border-style:dashed; background-image:repeating-linear-gradient(135deg,rgba(17,17,17,.09) 0 6px,transparent 6px 12px); }
+.rt-card.hid{ background-image:repeating-linear-gradient(135deg,rgba(17,17,17,.09) 0 6px,transparent 6px 12px); }
 .rt-top{ display:flex; justify-content:space-between; gap:8px; align-items:flex-start; flex:none; }
 .rt-lvcls{ font-family:'Alfa Slab One',serif; font-size:14px; line-height:1.05; white-space:nowrap; }
 .rt-name{ font-family:'Oswald',sans-serif !important; font-weight:500; font-size:13px !important; letter-spacing:.07em; text-transform:uppercase; margin-top:2px; width:150px; }
@@ -465,21 +465,32 @@ body.is-dragging [data-tip]::after{ display:none !important; }
   border:1.5px solid var(--ink); background:transparent; color:var(--ink); padding:2px 3px; max-width:120px;
 }
 .rt-owner:disabled{ border-color:transparent; -webkit-appearance:none; appearance:none; text-align:right; opacity:1; color:var(--ink); }
-.rt-stats{ display:flex; gap:12px; margin:7px 0 4px; flex:none; align-items:baseline; flex-wrap:wrap; }
+.rt-stats{ display:flex; justify-content:space-between; gap:6px; margin:7px 0 4px; flex:none; align-items:baseline; white-space:nowrap; }
 .rt-lbl{ font-family:'Oswald',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.06em; font-size:11px; }
 .rt-dim{ opacity:.7; }
 .rt-val{ font-family:'Oswald',sans-serif; font-weight:500; font-size:15px; }
-.rt-hp input{ font:inherit; width:2.2em; text-align:right; border:0; border-bottom:1.5px solid var(--ink); background:transparent; color:var(--ink); padding:0; }
-.rt-hp input.rt-max{ border-bottom-color:transparent; text-align:left; }
-.rt-hp input:disabled{ border-bottom-color:transparent; opacity:1; color:var(--ink); -webkit-text-fill-color:var(--ink); }
+.rt-hp input{ font:inherit; width:1.6em; text-align:right; border:0; background:transparent; color:var(--ink); padding:0; }
+.rt-hp input.rt-max{ text-align:left; }
+.rt-hp input:focus{ outline:none; background:rgba(17,17,17,.1); }
+.rt-hp input:disabled{ opacity:1; color:var(--ink); -webkit-text-fill-color:var(--ink); }
 .rt-roll{ cursor:pointer; border:0; background:none; color:inherit; font-family:inherit; padding:0 2px; text-align:left; }
 .rt-roll:hover:not(:disabled){ background:var(--ink); color:var(--paper); }
 .rt-roll:disabled{ cursor:default; opacity:1; color:var(--ink); }
 .rt-box{ border:1px solid var(--ink); padding:0 3px; }
 .rt-line{ display:flex; gap:10px; flex-wrap:wrap; margin:2px 0; border-top:1.5px solid var(--ink); padding-top:3px; flex:none; align-items:baseline; }
-.rt-weapon{ display:flex; gap:3px; align-items:center; }
+.rt-weapons{ display:flex; flex-direction:column; gap:2px; border-top:1.5px solid var(--ink); padding-top:3px; margin:2px 0; flex:none; align-items:flex-start; }
+.rt-weapon{ display:grid; grid-template-columns:1fr 40px 32px 38px 38px 14px; gap:4px; align-items:center; width:100%; }
+.rt-weapon .rt-box{ text-align:center; }
+.rt-wtype{ text-align:center; }
+.rt-weapon .rt-wname,.rt-weapon .rt-wdmg,.rt-weapon .rt-wmag{ width:auto; min-width:0; }
 .rt-cols{ display:grid; grid-template-columns:1fr 1fr; gap:10px; flex:1; min-height:0; margin-top:3px; border-top:1.5px solid var(--ink); padding-top:3px; }
-.rt-col{ overflow-y:auto; min-height:0; }
+.rt-col{ overflow-y:auto; min-height:0; scrollbar-width:thin; scrollbar-color:transparent transparent; }
+.rt-col.scrolling{ scrollbar-color:rgba(17,17,17,.45) transparent; }
+.rt-col::-webkit-scrollbar{ width:6px; }
+.rt-col::-webkit-scrollbar-thumb{ background:transparent; border-radius:3px; }
+.rt-col.scrolling::-webkit-scrollbar-thumb{ background:rgba(17,17,17,.45); }
+/* Only the selected card's fields respond; clicks on others just select/drag. */
+.rt-card:not(.sel) input,.rt-card:not(.sel) select,.rt-card:not(.sel) button,.rt-card:not(.sel) textarea{ pointer-events:none; }
 .rt-item{ display:flex; gap:3px; align-items:center; margin-bottom:1px; }
 .rt-in{
   font:inherit; flex:1; min-width:0; border:0; border-bottom:1px dashed rgba(17,17,17,.28);
@@ -488,7 +499,7 @@ body.is-dragging [data-tip]::after{ display:none !important; }
 .rt-in:focus{ outline:none; border-bottom:1px solid var(--ink); }
 .rt-in:disabled{ opacity:1; -webkit-text-fill-color:var(--ink); border-bottom-color:transparent; }
 .rt-in.rt-magic{ font-weight:600; font-style:italic; }
-.rt-wname{ width:70px; flex:1; } .rt-wdmg{ width:38px; flex:none; text-align:center; } .rt-wmag{ width:28px; flex:none; text-align:center; }
+.rt-wdmg,.rt-wmag{ text-align:center; }
 .rt-lvl{ font:inherit; font-size:11px; border:1px solid rgba(17,17,17,.28); background:transparent; color:var(--ink); padding:0; }
 .rt-lvl:disabled{ border-color:transparent; -webkit-appearance:none; appearance:none; opacity:1; color:var(--ink); }
 .rt-x{ border:0; background:none; color:#a8321f; cursor:pointer; font-size:14px; line-height:1; padding:0 1px; }
@@ -511,3 +522,9 @@ body.is-dragging [data-tip]::after{ display:none !important; }
   font-family:'Oswald',sans-serif; font-size:12px; letter-spacing:.07em; text-transform:uppercase; padding:3px 8px; white-space:nowrap;
 }
 @media (max-width:480px){ .rt-card{ width:300px; } }
+
+.class-box select.class-arrow{ flex:none; width:18px; color:transparent; background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23111'/%3E%3C/svg%3E") no-repeat center; -webkit-appearance:none; appearance:none; cursor:pointer; }
+.class-box select.class-arrow option{ color:#111; }
+.armor-opts{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.armor-shield{ display:flex; align-items:center; gap:6px; justify-content:center; font-size:14px; }
+.modal-btn.rt-on{ background:var(--ink); color:var(--paper); }

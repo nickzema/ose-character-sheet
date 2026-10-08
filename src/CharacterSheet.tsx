@@ -165,6 +165,11 @@ export default function CharacterSheet({ character: c, canEdit, isGM, me, onChan
 
   const { roll, setRoll, modal, setModal, askYesNo, rollAndShow } = useRoller();
 
+  const setArmorAC = () =>
+    new Promise<{ base: number; shield: boolean } | null>((resolve) => {
+      setModal({ type: "armor", message: "What armor are you wearing?", resolve: (v) => { setModal(null); resolve(v); } });
+    }).then((v) => { if (v) set("ac", v.base + (v.shield ? 1 : 0) + dexMod); });
+
   const askNumber = (message: string, defaultValue = "0") =>
     new Promise<number | null>((resolve) => {
       setModal({ type: "prompt", message, defaultValue, resolve: (v) => { setModal(null); resolve(v); } });
@@ -394,13 +399,20 @@ export default function CharacterSheet({ character: c, canEdit, isGM, me, onChan
               <div className="chip-row">
                 <div className="chip" data-tour="class-select">Class</div>
                 <div className="box class-box">
-                  <select value={c.classKey} disabled={!canEdit} onChange={(e) => chooseClass(e.target.value as ClassChoice)}>
-                    <option value="">Choose...</option>
-                    {CLASS_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
-                    <option value="Other">Other</option>
-                  </select>
-                  {c.classKey === "Other" && (
-                    <input value={c.className} disabled={!canEdit} placeholder="Class name" onChange={(e) => set("className", e.target.value)} />
+                  {c.classKey === "Other" ? (
+                    <input value={c.className} disabled={!canEdit} onChange={(e) => set("className", e.target.value)} />
+                  ) : (
+                    <select value={c.classKey} disabled={!canEdit} onChange={(e) => chooseClass(e.target.value as ClassChoice)}>
+                      <option value="">Choose...</option>
+                      {CLASS_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
+                      <option value="Other">Other</option>
+                    </select>
+                  )}
+                  {c.classKey === "Other" && canEdit && (
+                    <select className="class-arrow" value="Other" aria-label="Choose a class" onChange={(e) => chooseClass(e.target.value as ClassChoice)}>
+                      <option value="Other">Other</option>
+                      {CLASS_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
+                    </select>
                   )}
                 </div>
               </div>
@@ -454,7 +466,7 @@ export default function CharacterSheet({ character: c, canEdit, isGM, me, onChan
               <ChipRow chip="Max" value={c.hpMax} disabled={!canEdit} onChange={(v) => set("hpMax", Number(v) || 0)} onRoll={rollMaxHP} rollTitle="Roll all Hit Dice for your level + CON (doesn't change this box)" tourId="max-roll" />
             </Row2>
             <Row2>
-              <ChipRow chip="AC" value={c.ac} disabled={!canEdit} onChange={(v) => set("ac", Number(v) || 0)} />
+              <ChipRow chip="AC" value={c.ac} disabled={!canEdit} onChange={(v) => set("ac", Number(v) || 0)} onRoll={canEdit ? setArmorAC : undefined} rollTitle="Pick armor to set AC" />
               <ChipRow chip="Att" value={fmtMod(eff.attack)} disabled={lockedClass} onChange={(v) => set("attackBonus", Number(v.replace("+", "")) || 0)} />
             </Row2>
             <Row2>

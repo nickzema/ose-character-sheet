@@ -2,7 +2,7 @@ import { NAME_LISTS } from "./retainerNames";
 import { abilityMod } from "./abilities";
 import { CLERIC_SPELLS, MAGIC_USER_SPELLS } from "./spells";
 import { classStats, NORMAL_HUMAN_SAVES, type ClassKey } from "./classData";
-import { YELLOW, type Retainer } from "./retainerTypes";
+import { colorForClass, type Retainer } from "./retainerTypes";
 import type { Abilities, MemorizedSpell, Weapon } from "./types";
 
 // Retainer generator. Order: ability scores (3d6 in order) -> class (d20,
@@ -178,7 +178,7 @@ export function generateRetainer(order: number): Retainer {
     items,
     spells,
     ownerCharacterId: "",
-    color: YELLOW,
+    color: colorForClass(cls),
     hidden: false,
     linkedTokenId: null,
   };

@@ -34,16 +34,24 @@ export interface Retainer {
 
 export const YELLOW = "#FFF69B";
 
-// Post-it note colours (the card's swatch row is these, then white, then the
-// owning character's sheet colour).
+// Post-it note colours (the card's swatch row is Yellow, Pink, Blue, Green,
+// White, then the owning character's sheet colour).
+export const YELLOW_PI = "#FFF69B";
+export const PINK = "#F6C2D9";
+export const BLUE = "#A1C8E9";
+export const GREEN = "#BCDFC9";
+export const WHITE = "#FCFBF8";
 export const POSTIT_SWATCHES: [string, string][] = [
-  ["#F6C2D9", "Post-it Pink"],
-  ["#FFF69B", "Post-it Yellow"],
-  ["#BCDFC9", "Post-it Green"],
-  ["#A1C8E9", "Post-it Blue"],
-  ["#E4DAE2", "Post-it Mauve"],
-  ["#FCFBF8", "White"],
+  [YELLOW_PI, "Yellow"],
+  [PINK, "Pink"],
+  [BLUE, "Blue"],
+  [GREEN, "Green"],
+  [WHITE, "White"],
 ];
+
+/** Default card colour by class: humans yellow, Halfling pink, Dwarf blue, Elf green, Normal Human white. */
+export const colorForClass = (cls: string) =>
+  cls === "Halfling" ? PINK : cls === "Dwarf" ? BLUE : cls === "Elf" ? GREEN : cls === "Normal Human" ? WHITE : YELLOW_PI;
 
 export function healRetainer(raw: Partial<Retainer> & { id: string }): Retainer {
   return {

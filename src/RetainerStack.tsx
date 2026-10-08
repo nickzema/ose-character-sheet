@@ -162,8 +162,9 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
   const onMouseMove = (e: React.MouseEvent) => {
     const el = (e.target as HTMLElement).closest(".rt-card") as HTMLElement | null;
     if (!el || dragRef.current?.on || !labelCovered(el)) { clearTip(); return; }
-    if (tip) { setTip({ ...tip, x: e.clientX + 12, y: e.clientY - 30 }); return; }
     const id = el.dataset.id!;
+    if (tip && tipFor.current === id) { setTip({ ...tip, x: e.clientX + 12, y: e.clientY - 30 }); return; }
+    if (tip) setTip(null);
     if (tipFor.current === id) return;
     if (tipTimer.current) window.clearTimeout(tipTimer.current);
     tipFor.current = id;
@@ -172,6 +173,16 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
       const r = retainers.find((q) => q.id === id);
       if (r) setTip({ text: `${labelFor(r)} · ${r.name || "Unnamed"}`, x: x + 12, y: y - 30 });
     }, 700);
+  };
+
+  // Scrollbars on the item/spell columns only show while actually scrolling.
+  const onScrollShow = (e: React.UIEvent) => {
+    const el = e.target as HTMLElement;
+    if (!el.classList?.contains("rt-col")) return;
+    el.classList.add("scrolling");
+    const w = el as HTMLElement & { _t?: number };
+    if (w._t) window.clearTimeout(w._t);
+    w._t = window.setTimeout(() => el.classList.remove("scrolling"), 700);
   };
 
   // ---- rolls -------------------------------------------------------------
@@ -212,6 +223,11 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
     const owner = characters.find((c) => c.id === id);
     onSave({ ...r, ownerCharacterId: id, color: owner ? owner.color : r.color });
   };
+  const unassigned = retainers.filter((r) => !ownerOf(r));
+  const deleteUnassigned = () => {
+    if (!unassigned.length) return;
+    if (window.confirm(`Delete ${unassigned.length} unassigned retainer${unassigned.length === 1 ? "" : "s"}?`)) unassigned.forEach((r) => onDelete(r.id));
+  };
   const ownerChoices = characters.filter((c) => !c.inactive && (isGM || !c.hidden));
 
   const num = (v: string) => Number(v.replace(/[^\d-]/g, "")) || 0;
@@ -221,7 +237,7 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
     const canPlay = isGM || mine(r);
     const selected = sel === r.id;
     const dragging = dragView?.id === r.id;
-    const style: React.CSSProperties = { left, top: TOP_PAD, background: r.color, zIndex: dragging ? 200 : selected ? 100 : idxInRow + 1 };
+    const style: React.CSSProperties = { left, top: TOP_PAD, backgroundColor: r.color, zIndex: dragging ? 200 : selected ? 100 : idxInRow + 1 };
     if (dragView && dragging) {
       const box = wrapRef.current?.getBoundingClientRect();
       if (box) {
@@ -252,7 +268,7 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
             <input className="rt-in rt-name" value={r.name} placeholder="Name" disabled={!canGM} onChange={(e) => onSave({ ...r, name: e.target.value })} />
           </div>
           <select className="rt-owner" value={r.ownerCharacterId} disabled={!canGM} onChange={(e) => setOwner(r, e.target.value)}>
-            <option value="">Unhired</option>
+            <option value="">Unassigned</option>
             {ownerChoices.map((c) => <option key={c.id} value={c.id}>{c.name || "Unnamed"}</option>)}
             {r.ownerCharacterId && !ownerChoices.some((c) => c.id === r.ownerCharacterId) && ownerOf(r) && (
               <option value={r.ownerCharacterId}>{ownerOf(r)!.name || "Unnamed"}</option>
@@ -263,33 +279,38 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
         <div className="rt-stats">
           <span><span className="rt-lbl">AC</span> <span className="rt-val">{r.ac}</span> <span className="rt-lbl rt-dim">[{19 - r.ac}]</span></span>
           <span className="rt-hp">
-            <button className="rt-roll rt-lbl" disabled={!canGM} onClick={() => rerollHp(r)} data-tip={canGM ? "Reroll max HP" : undefined}>Hit Points</button>{" "}
+            <button className="rt-roll rt-lbl" disabled={!canGM} onClick={() => rerollHp(r)} data-tip={canGM ? "Reroll max HP" : undefined}>HP</button>{" "}
             <span className="rt-val">
               <input value={r.hpCurrent} disabled={!canPlay} onChange={(e) => onSave({ ...r, hpCurrent: num(e.target.value) })} />
               /
               <input className="rt-max" value={r.hpMax} disabled={!canGM} onChange={(e) => onSave({ ...r, hpMax: num(e.target.value) })} />
             </span>
           </span>
+          <span><span className="rt-lbl">AB</span> <span className="rt-val">{fmtMod(r.attackBonus)}</span></span>
           <span><span className="rt-lbl">MV</span> <span className="rt-val">{r.move}'</span></span>
           <span><span className="rt-lbl">AL</span> <span className="rt-val">{r.alignment.slice(0, 1)}</span></span>
         </div>
 
-        <div className="rt-line">
-          <span className="rt-lbl">Attack</span>
+        <div className="rt-weapons">
           {r.weapons.map((w, i) =>
             canGM ? (
-              <span className="rt-weapon" key={i}>
+              <div className="rt-weapon" key={i}>
                 <input className="rt-in rt-wname" value={w.name} placeholder="Weapon" onChange={(e) => setW(i, { name: e.target.value })} />
                 <input className="rt-in rt-wdmg" value={w.damage} placeholder="1d6" onChange={(e) => setW(i, { damage: e.target.value })} />
                 <input className="rt-in rt-wmag" value={w.bonus} placeholder="+0" onChange={(e) => setW(i, { bonus: e.target.value })} />
                 <button className="rt-roll rt-lbl rt-box" onClick={() => setW(i, { ranged: !w.ranged })}>{w.ranged ? "MIS" : "MEL"}</button>
                 <button className="rt-roll rt-lbl rt-box" onClick={() => rollAttack(r, w)}>ATK</button>
                 <button className="rt-x" onClick={() => onSave({ ...r, weapons: r.weapons.filter((_, k) => k !== i) })}>&times;</button>
-              </span>
+              </div>
             ) : (
-              <button className="rt-roll rt-val" key={i} onClick={() => rollAttack(r, w)}>
-                {w.name || "Weapon"} <span className="rt-lbl">{w.damage}{w.bonus ? ` ${w.bonus}` : ""}</span>
-              </button>
+              <div className="rt-weapon" key={i}>
+                <span className="rt-wname rt-val">{w.name || "Weapon"}</span>
+                <span className="rt-wdmg rt-val">{w.damage}</span>
+                <span className="rt-wmag rt-val">{w.bonus}</span>
+                <span className="rt-lbl rt-wtype">{w.ranged ? "MIS" : "MEL"}</span>
+                <button className="rt-roll rt-lbl rt-box" onClick={() => rollAttack(r, w)}>ATK</button>
+                <span />
+              </div>
             )
           )}
           {canGM && <button className="rt-add" onClick={() => onSave({ ...r, weapons: [...r.weapons, { name: "", damage: "", bonus: "", ranged: false }] })}>+ Weapon</button>}
@@ -373,10 +394,11 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
               {onlyMine ? "Show all retainers" : "Show only my retainers"}
             </button>
           )}
+          {isGM && unassigned.length > 0 && <button className="btn text danger" onClick={deleteUnassigned}>Delete Unassigned ({unassigned.length})</button>}
           {isGM && <button className="btn" onClick={onGenerate}>+ Generate Retainer</button>}
         </div>
       </div>
-      <div className="rt-stack" ref={wrapRef} onMouseMove={onMouseMove} onMouseLeave={clearTip}>
+      <div className="rt-stack" ref={wrapRef} onMouseMove={onMouseMove} onMouseLeave={clearTip} onScrollCapture={onScrollShow}>
         {visible.length === 0 && (
           <div className="rt-empty">{!isGM && onlyMine ? "None of your characters have retainers." : "No retainers yet."}</div>
         )}

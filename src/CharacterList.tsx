@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { Character } from "./types";
+import { classStats, isClassKey } from "./classData";
+import { thiefSkillsForLevel } from "./abilities";
 import HelpButton, { type TourStep } from "./HelpButton";
 
 interface Props {
@@ -70,7 +72,10 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
                 </div>
                 <div className="sub">
                   {c.className || "Class?"} &middot; Lv {c.level}
-                  {c.title ? ` \u00b7 ${c.title}` : ""}
+                  {(() => {
+                    const t = c.title || (isClassKey(c.classKey) ? classStats(c.classKey, c.level, c.abilities, thiefSkillsForLevel(c.level).HN).title : "");
+                    return t ? ` \u00b7 ${t}` : "";
+                  })()}
                   {c.alignment ? ` \u00b7 ${c.alignment}` : ""}
                 </div>
               </div>
