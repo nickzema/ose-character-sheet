@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import { usePlayer, useRoster, useRetainers } from "./useOBR";
+import { usePlayer, useRoster, useRetainers, useRoomUsage, repackRoom, ROOM_LIMIT } from "./useOBR";
 import { blankCharacter, type Character } from "./types";
 import { generateRetainer } from "./retainerGen";
 import type { Retainer } from "./retainerTypes";
@@ -30,12 +30,21 @@ export default function App() {
   const { roster, saveCharacter, deleteCharacter: removeCharacter, saveWarning } = useRoster();
   const { retainers, saveRetainer, saveRetainers, deleteRetainer, retainerWarning } = useRetainers();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const usage = useRoomUsage();
   const [view, setView] = useState<"party" | "inactive">("party");
 
   useEffect(() => {
     if (assignParams) return; // the popover doesn't need the context menu
     OBR.onReady(() => setupContextMenu());
   }, [assignParams]);
+
+  // GM: once per load, shrink any items still stored in the old, larger format.
+  const loaded = !!player && roster !== null && retainers !== null;
+  useEffect(() => {
+    if (assignParams || !loaded || player?.role !== "GM") return;
+    repackRoom().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, player?.role, assignParams]);
 
   // The popover opened by right-clicking a token renders this instead of
   // the normal app - it's the same bundle, just a different query param.
@@ -110,6 +119,9 @@ export default function App() {
 
   return (
     <div className="app">
+      {isGM && usage !== null && (
+        <div className={`room-usage${usage > ROOM_LIMIT * 0.9 ? " full" : ""}`}>Room storage {(usage / 1024).toFixed(1)} / 16 kB</div>
+      )}
       {(saveWarning || retainerWarning) && <div className="save-warning">{saveWarning || retainerWarning}</div>}
       {selected ? (
         <CharacterSheet

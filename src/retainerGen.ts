@@ -163,7 +163,7 @@ export function generateRetainer(order: number, maxLevel = 1): Retainer {
   const items: string[] = [];
   const weapons: Weapon[] = [];
   if (normal) {
-    weapons.push(W("Improvised weapon", "1d6"));
+    weapons.push(W("Unarmed", "1d2"));
   } else {
     let armour = null as (typeof ARMOUR_D6)[number] | null;
     if (cls === "Thief") armour = ARMOUR_D6[0];

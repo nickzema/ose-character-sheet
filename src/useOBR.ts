@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import { healCharacter, type Character } from "./types";
+import LZString from "lz-string";
+import { blankCharacter, healCharacter, type Character } from "./types";
 import { healRetainer, type Retainer } from "./retainerTypes";
 
 // Legacy: the whole party as one array under a single key. Every edit rewrote
@@ -41,12 +42,39 @@ export function usePlayer() {
 
 interface Stored { id: string; createdAt: number; updatedAt: number }
 
+// Storage format: id/createdAt/updatedAt stay readable (merging needs them);
+// everything else is packed as LZ-compressed JSON containing only the fields
+// that differ from a blank item. Unpacked (older) values are still read as-is.
+const META = ["id", "createdAt", "updatedAt"] as const;
+
+function pack<T extends Stored>(item: T, blank: T): Record<string, unknown> {
+  const diff: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(item)) {
+    if ((META as readonly string[]).includes(k)) continue;
+    if (JSON.stringify(v) !== JSON.stringify((blank as Record<string, unknown>)[k])) diff[k] = v;
+  }
+  return { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, z: LZString.compressToBase64(JSON.stringify(diff)) };
+}
+
+function unpack(v: Record<string, unknown>): Record<string, unknown> {
+  if (typeof v.z !== "string") return v;
+  try {
+    const diff = JSON.parse(LZString.decompressFromBase64(v.z) || "{}");
+    return { ...diff, id: v.id, createdAt: v.createdAt, updatedAt: v.updatedAt };
+  } catch {
+    return { id: v.id, createdAt: v.createdAt, updatedAt: v.updatedAt };
+  }
+}
+
+export const packCharacter = (c: Character) => pack(c, blankCharacter(c.id, "unknown"));
+export const packRetainer = (r: Retainer) => pack(r, healRetainer({ id: r.id }));
+
 function readItems<T extends Stored>(metadata: Record<string, unknown>, prefix: string, heal: (raw: Partial<T> & { id: string }) => T, sort: (a: T, b: T) => number): T[] {
   const out: T[] = [];
   for (const [k, v] of Object.entries(metadata)) {
     if (!k.startsWith(prefix) || !v || typeof v !== "object") continue;
     if ((v as { deleted?: boolean }).deleted) continue; // tombstone
-    out.push(heal(v as Partial<T> & { id: string }));
+    out.push(heal(unpack(v as Record<string, unknown>) as Partial<T> & { id: string }));
   }
   return out.sort(sort);
 }
@@ -106,6 +134,7 @@ function useSyncedList<T extends Stored>(opts: {
   migrate?: () => Promise<void>;
   fullWarning: string;
   stripOnFull?: (item: T) => T | null;
+  pack: (item: T) => Record<string, unknown>;
 }) {
   const { prefix, heal, sort, fullWarning } = opts;
   const [items, setItems] = useState<T[] | null>(null);
@@ -156,7 +185,7 @@ function useSyncedList<T extends Stored>(opts: {
 
   const write = async (batch: T[]) => {
     const update: Record<string, unknown> = {};
-    for (const it of batch) update[key(it.id)] = it;
+    for (const it of batch) update[key(it.id)] = opts.pack(it);
     try {
       await OBR.room.setMetadata(update);
       setSaveWarning(null);
@@ -167,7 +196,7 @@ function useSyncedList<T extends Stored>(opts: {
         const stripped = opts.stripOnFull(batch[0]);
         if (stripped) {
           try {
-            await OBR.room.setMetadata({ [key(stripped.id)]: stripped });
+            await OBR.room.setMetadata({ [key(stripped.id)]: opts.pack(stripped) });
             localRef.current.set(stripped.id, stripped);
             publish();
             setSaveWarning("Room storage is full, so manually-uploaded portraits couldn't be saved. Assign a token to a character instead for a portrait that persists.");
@@ -222,6 +251,7 @@ export function useRoster() {
     sort: byCreated,
     migrate: migrateLegacy,
     fullWarning: "NOT SAVED - room storage is full. Changes will be lost on refresh. Remove a portrait or trim notes.",
+    pack: packCharacter,
     stripOnFull: (c) => (c.portrait && !c.linkedTokenId ? { ...c, portrait: null } : null),
   });
   return { roster: r.items, saveCharacter: r.save, deleteCharacter: r.remove, saveWarning: r.saveWarning };
@@ -232,7 +262,38 @@ export function useRetainers() {
     prefix: RET_PREFIX,
     heal: healRetainer,
     sort: byOrder,
+    pack: packRetainer,
     fullWarning: "NOT SAVED - room storage is full. Remove a retainer or a portrait.",
   });
   return { retainers: r.items, saveRetainer: r.save, saveRetainers: r.saveMany, deleteRetainer: r.remove, retainerWarning: r.saveWarning };
+}
+
+/** Bytes of room metadata in use (Owlbear caps it at 16 kB, shared by every extension). */
+export const ROOM_LIMIT = 16384;
+export function useRoomUsage() {
+  const [bytes, setBytes] = useState<number | null>(null);
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    const measure = (m: Record<string, unknown>) => setBytes(new TextEncoder().encode(JSON.stringify(m)).length);
+    OBR.onReady(async () => {
+      measure(await OBR.room.getMetadata());
+      unsubscribe = OBR.room.onMetadataChange(measure);
+    });
+    return () => unsubscribe?.();
+  }, []);
+  return bytes;
+}
+
+/** GM, once per load: pack any still-unpacked items in place (same content and timestamps). */
+export async function repackRoom() {
+  const m = await OBR.room.getMetadata();
+  const update: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(m)) {
+    if (!v || typeof v !== "object") continue;
+    const o = v as Record<string, unknown>;
+    if (o.deleted || typeof o.z === "string" || typeof o.id !== "string") continue;
+    if (k.startsWith(CHAR_PREFIX)) update[k] = packCharacter(healCharacter(o as Partial<Character> & { id: string }));
+    else if (k.startsWith(RET_PREFIX)) update[k] = packRetainer(healRetainer(o as Partial<Retainer> & { id: string }));
+  }
+  if (Object.keys(update).length) await OBR.room.setMetadata(update);
 }

@@ -3,7 +3,7 @@ import OBR from "@owlbear-rodeo/sdk";
 import type { Character } from "./types";
 import type { Retainer } from "./retainerTypes";
 import { syncLinkedToken } from "./statBubbles";
-import { charKey, migrateLegacy, readRoster, readRetainers, retKey } from "./useOBR";
+import { charKey, migrateLegacy, packCharacter, packRetainer, readRoster, readRetainers, retKey } from "./useOBR";
 
 interface Props {
   tokenId: string;
@@ -36,7 +36,7 @@ export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName, ki
     const current = retainers?.find((r) => r.id === id);
     if (!current) return;
     const linked: Retainer = { ...current, linkedTokenId: tokenId, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
-    await OBR.room.setMetadata({ [retKey(id)]: linked });
+    await OBR.room.setMetadata({ [retKey(id)]: packRetainer(linked) });
     // Push name/HP/AC to the token right away, not just on the next card edit.
     await syncLinkedToken(linked);
     setDone(true);
@@ -48,7 +48,7 @@ export default function AssignPortraitPopover({ tokenId, imageUrl, tokenName, ki
     const current = roster.find((c) => c.id === id);
     if (!current) return;
     const linked: Character = { ...current, portrait: imageUrl, linkedTokenId: tokenId, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
-    await OBR.room.setMetadata({ [charKey(id)]: linked });
+    await OBR.room.setMetadata({ [charKey(id)]: packCharacter(linked) });
     // Push name/HP/AC to the token right away, not just on the next sheet edit.
     await syncLinkedToken(linked);
     setDone(true);
