@@ -537,7 +537,7 @@ body.is-dragging [data-tip]::after{ display:none !important; }
 .rt-grid{ display:grid; grid-template-columns:repeat(6,1fr); gap:3px 4px; border-top:1.5px solid var(--ink); padding-top:3px; margin:2px 0; flex:none; }
 .rt-grid .rt-roll,.rt-grid .rt-magic-mod{ white-space:nowrap; padding:0 2px; }
 .rt-card:not(.sel) .rt-col{ pointer-events:none; overflow:hidden; }
-.room-usage{ font-family:'Oswald',sans-serif; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--caption); text-align:right; margin:10px 0 2px; padding-right:22px; }
+.room-usage{ font-family:'Oswald',sans-serif; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--caption); text-align:left; margin:10px 0 2px; padding-left:14px; }
 .room-usage.full{ color:#a8321f; font-weight:600; }
 .room-usage{ cursor:pointer; }
 .room-usage-detail{ margin-top:4px; line-height:1.5; }

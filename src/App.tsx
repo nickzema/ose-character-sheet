@@ -32,7 +32,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const usage = useRoomUsage();
   const kb = (n: number) => `${(n / 1024).toFixed(1)}`;
-  const [usageOpen, setUsageOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(true);
   const [view, setView] = useState<"party" | "inactive">("party");
 
   useEffect(() => {
