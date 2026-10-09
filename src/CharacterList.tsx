@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Character } from "./types";
+import { nums, type Character } from "./types";
 import { classStats, isClassKey } from "./classData";
 import { thiefSkillsForLevel } from "./abilities";
 import HelpButton, { type TourStep } from "./HelpButton";
@@ -49,7 +49,7 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
             <button className="btn" onClick={onShowParty}>&larr; Party</button>
           ) : (
             <>
-              <button className="btn" onClick={onShowInactive}>Inactive{inactiveCount ? ` (${inactiveCount})` : ""}</button>
+              <button className="btn" data-tour="inactive-btn" onClick={onShowInactive}>Inactive{inactiveCount ? ` (${inactiveCount})` : ""}</button>
               <button className="btn" onClick={onAdd}>+ New</button>
             </>
           )}
@@ -73,7 +73,7 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
                 <div className="sub">
                   {c.className || "Class?"} &middot; Lv {c.level}
                   {(() => {
-                    const t = c.title || (isClassKey(c.classKey) ? classStats(c.classKey, c.level, c.abilities, thiefSkillsForLevel(c.level).HN).title : "");
+                    const t = c.title || (isClassKey(c.classKey) ? classStats(c.classKey, c.level, nums(c.abilities), thiefSkillsForLevel(c.level).HN).title : "");
                     return t ? ` \u00b7 ${t}` : "";
                   })()}
                   {c.alignment ? ` \u00b7 ${c.alignment}` : ""}
@@ -116,9 +116,15 @@ export default function CharacterList({ characters, isGM, onSelect, onAdd, onDel
 const LIST_HELP_STEPS = (isGM: boolean): TourStep[] => {
   const steps: TourStep[] = [
     { selector: ".char-row", text: "Click anywhere on a row to open that character's sheet." },
+    { selector: '[data-tour="inactive-btn"]', text: "Inactive characters are tucked away here; reactivate them from this list." },
+    { selector: '[data-tour="rt-card"]', text: "Click a retainer card to select it. Only the owner and GM can edit: click XP to enter it (XP sets Level), and click AC or MV to adjust them." },
+    { selector: ".rt-owner", text: "Assign the retainer to a character. Everyone then sees it in that character's sheet color; the owner can still pick a personal color that only they see." },
   ];
+  if (!isGM) steps.push({ selector: '[data-tour="rt-mine"]', text: "Show only the retainers belonging to your characters." });
   if (isGM) {
     steps.push(
+    { selector: '[data-tour="rt-generate"]', text: "Generate a random retainer: class, level, stats, gear, and name." },
+      { selector: '[data-tour="rt-view"]', text: "View by player: see one character's retainers with the colors that player sees, or just the unassigned ones." },
       { selector: ".row-hide", text: "Click the eye to hide a character from players entirely \u2014 they won't see the row at all." },
       { selector: ".row-delete", text: "Removes a character from the party for good. Players can only delete their own PC, from inside the sheet." },
     );

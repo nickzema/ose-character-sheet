@@ -376,7 +376,7 @@ body.is-dragging [data-tip]::after{ display:none !important; }
 
 /* Spellbook (Magic-User) - chaptered by level, collapsible */
 .spellbook-wrap{ margin-top:14px; }
-.spellbook-chapter{ border:1.5px solid var(--ink); margin-bottom:6px; }
+.spellbook-chapter{ border:1.5px solid var(--ink); margin-bottom:6px; position:relative; }
 .chapter-toggle{
   width:100%; text-align:left; background:var(--ink); color:var(--chip-text); border:none;
   font-family:'Oswald',sans-serif; font-weight:600; font-size:12px; letter-spacing:0.03em; text-transform:uppercase;
@@ -542,3 +542,16 @@ body.is-dragging [data-tip]::after{ display:none !important; }
 .room-usage{ cursor:pointer; }
 .room-usage-detail{ margin-top:4px; line-height:1.5; }
 .room-usage-detail .sub{ opacity:.75; padding-right:10px; }
+
+.rt-num{ font:inherit; width:1.6em; text-align:right; border:0; background:transparent; color:var(--ink); padding:0; }
+.rt-num.rt-mv{ width:2.1em; }
+.rt-num:focus{ outline:none; background:rgba(17,17,17,.1); }
+.rt-num:disabled{ opacity:1; -webkit-text-fill-color:var(--ink); }
+.rt-xp{ display:inline-flex; align-items:baseline; gap:4px; margin-left:6px; }
+.rt-xp input{ font-family:'Oswald',sans-serif; font-weight:500; font-size:14px; width:5.2em; border:0; background:transparent; color:var(--ink); padding:0; }
+.rt-xp input:focus{ outline:none; background:rgba(17,17,17,.1); }
+.rt-xp input:disabled{ opacity:1; -webkit-text-fill-color:var(--ink); }
+.chapter-x{ position:absolute; right:8px; top:50%; transform:translateY(-50%); border:0; background:none; color:#a8321f; cursor:pointer; font-size:16px; line-height:1; padding:0 2px; }
+
+.ability-col{ position:relative; }
+.ability-cover{ position:absolute; inset:0; z-index:5; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; background:rgba(120,120,120,.55); border-radius:6px; }

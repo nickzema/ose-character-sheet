@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Character } from "./types";
 import type { Retainer } from "./retainerTypes";
-import type { ClassKey } from "./classData";
 import { POSTIT_SWATCHES } from "./retainerTypes";
 import { abilityMod, fmtMod } from "./abilities";
-import { hdOf, maxLevelOf } from "./classData";
-import { applyLevel } from "./retainerGen";
+import { hdOf, nextLevelXp } from "./classData";
+import { applyXp } from "./retainerGen";
 import { rollWeapon, termString } from "./dice";
 import { RollBanner, AppModal, fallbackNoteFor, useRoller } from "./rollUi";
 
@@ -40,11 +39,13 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
   const [width, setWidth] = useState(700);
   const [sel, setSel] = useState<string | null>(null);
   const [onlyMine, setOnlyMine] = useState(false);
+  // GM only: look at one character's retainers (as that player sees them), or just the unassigned ones.
+  const [viewAs, setViewAs] = useState<string | null>(null);
   const [colorOpen, setColorOpen] = useState<string | null>(null);
   const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null);
   const tipTimer = useRef<number | null>(null);
   const tipFor = useRef<string | null>(null);
-  const { roll, setRoll, modal, askYesNo, rollAndShow } = useRoller();
+  const { roll, setRoll, modal, setModal, askYesNo, rollAndShow } = useRoller();
 
   useLayoutEffect(() => {
     const el = wrapRef.current;
@@ -58,13 +59,21 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
 
   const ownerOf = (r: Retainer) => characters.find((c) => c.id === r.ownerCharacterId) ?? null;
   const mine = (r: Retainer) => ownerOf(r)?.ownerId === playerId;
+  // Everyone sees the owner's sheet colour. The owner's own pick (ownerColor) shows only to the owner,
+  // or to the GM while viewing as that character.
+  const baseColor = (r: Retainer) => ownerOf(r)?.color ?? r.color;
+  const seenAsOwner = (r: Retainer) => !!ownerOf(r) && (mine(r) || (isGM && viewAs === r.ownerCharacterId));
+  const shownColor = (r: Retainer) => (seenAsOwner(r) && r.ownerColor ? r.ownerColor : baseColor(r));
+  const canColor = (r: Retainer) => (ownerOf(r) ? seenAsOwner(r) : isGM);
 
   // ---- visible list (with live reorder while dragging) -------------------
   const [dragView, setDragView] = useState<{ id: string; px: number; py: number; ox: number; oy: number; order: string[] } | null>(null);
   const dragRef = useRef<{ id: string; x0: number; y0: number; ox: number; oy: number; on: boolean; order: string[] } | null>(null);
   const suppressClick = useRef(false);
 
-  const base = retainers.filter((r) => (isGM || !r.hidden) && (isGM || !onlyMine || mine(r)));
+  const inView = (r: Retainer) =>
+    !isGM || !viewAs ? true : viewAs === "unassigned" ? !ownerOf(r) : r.ownerCharacterId === viewAs;
+  const base = retainers.filter((r) => (isGM || !r.hidden) && (isGM || !onlyMine || mine(r)) && inView(r));
   const visible = dragView
     ? dragView.order.map((id) => base.find((r) => r.id === id)).filter((r): r is Retainer => !!r)
     : base;
@@ -221,10 +230,24 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
 
   // ---- edits ---------------------------------------------------------------
   const setOwner = (r: Retainer, id: string) => {
-    const owner = characters.find((c) => c.id === id);
-    onSave({ ...r, ownerCharacterId: id, color: owner ? owner.color : r.color });
+    onSave({ ...r, ownerCharacterId: id, ownerColor: "" });
   };
   const unassigned = retainers.filter((r) => !ownerOf(r));
+  const pickView = () => {
+    const active = characters.filter((c) => !c.inactive).sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "PC" ? -1 : 1));
+    const count = (id: string) => retainers.filter((r) => r.ownerCharacterId === id).length;
+    const opts: { label: string; v: string | null }[] = [
+      { label: "All retainers", v: null },
+      { label: `Unassigned (${unassigned.length})`, v: "unassigned" },
+      ...active.map((c) => ({ label: `${c.name || "Unnamed"} (${count(c.id)})`, v: c.id })),
+    ];
+    new Promise<string | null>((resolve) =>
+      setModal({ type: "choice", message: "Whose retainers?", options: opts.map((o) => o.label), resolve: (v) => { setModal(null); resolve(v); } })
+    ).then((label) => {
+      const o = opts.find((x) => x.label === label);
+      if (o) setViewAs(o.v);
+    });
+  };
   const deleteUnassigned = () => {
     if (!unassigned.length) return;
     if (window.confirm(`Delete ${unassigned.length} unassigned retainer${unassigned.length === 1 ? "" : "s"}?`)) unassigned.forEach((r) => onDelete(r.id));
@@ -238,7 +261,7 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
     const canPlay = isGM || mine(r);
     const selected = sel === r.id;
     const dragging = dragView?.id === r.id;
-    const style: React.CSSProperties = { left, top: TOP_PAD, backgroundColor: r.color, zIndex: dragging ? 200 : selected ? 100 : idxInRow + 1 };
+    const style: React.CSSProperties = { left, top: TOP_PAD, backgroundColor: shownColor(r), zIndex: dragging ? 200 : selected ? 100 : idxInRow + 1 };
     if (dragView && dragging) {
       const box = wrapRef.current?.getBoundingClientRect();
       if (box) {
@@ -253,11 +276,17 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
     const swatches: [string, string][] = [...POSTIT_SWATCHES];
     const owner = ownerOf(r);
     if (owner && owner.color.toLowerCase() !== "#fcfbf8") swatches.push([owner.color, `${owner.name || "Owner"}'s sheet`]);
+    const pickColor = (hex: string) => {
+      if (!owner) onSave({ ...r, color: hex });
+      else onSave({ ...r, ownerColor: hex.toLowerCase() === owner.color.toLowerCase() ? "" : hex });
+      setColorOpen(null);
+    };
 
     return (
       <div
         key={r.id}
         data-id={r.id}
+        data-tour={idxInRow === 0 ? "rt-card" : undefined}
         className={`rt-card${selected ? " sel" : ""}${dragging ? " drag" : ""}${r.hidden ? " hid" : ""}${isGM ? " can-drag" : ""}`}
         style={style}
         onPointerDown={(e) => onPointerDown(e, r)}
@@ -266,14 +295,7 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
         <div className="rt-top">
           <div className="rt-title">
             <div className="rt-lvcls">
-              {r.classKey === "Normal Human" ? "Normal Human" : (
-                <>
-                  Level{" "}
-                  <input className="rt-lv" value={r.level} disabled={!canGM} inputMode="numeric"
-                    onChange={(e) => { const n = parseInt(e.target.value.replace(/\D/g, ""), 10); if (n >= 1) onSave(applyLevel(r, Math.min(n, maxLevelOf(r.classKey as ClassKey)))); }} />{" "}
-                  {r.classKey}
-                </>
-              )}
+              {labelFor(r)}
             </div>
             <input className="rt-in rt-name" value={r.name} placeholder="Name" disabled={!canGM} onChange={(e) => onSave({ ...r, name: e.target.value })} />
           </div>
@@ -287,7 +309,11 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
         </div>
 
         <div className="rt-stats">
-          <span><span className="rt-lbl">AC</span> <span className="rt-val">{r.ac}</span> <span className="rt-lbl rt-dim">[{19 - r.ac}]</span></span>
+          <span className="rt-hp">
+            <span className="rt-lbl">AC</span>{" "}
+            <input className="rt-num rt-val" value={r.ac} disabled={!canPlay} onChange={(e) => onSave({ ...r, ac: num(e.target.value) })} />
+            <span className="rt-lbl rt-dim">[{19 - r.ac}]</span>
+          </span>
           <span className="rt-hp">
             <button className="rt-roll rt-lbl" disabled={!canGM} onClick={() => rerollHp(r)} data-tip={canGM ? "Reroll max HP" : undefined}>HP</button>{" "}
             <span className="rt-val">
@@ -296,8 +322,8 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
               <input className="rt-max" value={r.hpMax} disabled={!canGM} onChange={(e) => onSave({ ...r, hpMax: num(e.target.value) })} />
             </span>
           </span>
-          <span><span className="rt-lbl">AB</span> <span className="rt-val">{fmtMod(r.attackBonus)}</span></span>
-          <span><span className="rt-lbl">MV</span> <span className="rt-val">{r.move}'</span></span>
+          <span><span className="rt-lbl">ATT</span> <span className="rt-val">{fmtMod(r.attackBonus)}</span></span>
+          <span className="rt-hp"><span className="rt-lbl">MV</span> <input className="rt-num rt-mv rt-val" value={r.move} disabled={!canPlay} onChange={(e) => onSave({ ...r, move: num(e.target.value) })} /><span className="rt-val">'</span></span>
           <span><span className="rt-lbl">AL</span> <span className="rt-val">{r.alignment.slice(0, 1)}</span></span>
         </div>
 
@@ -369,14 +395,17 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
 
         <div className="rt-foot">
           <div className="rt-colors">
-            <button className="rt-cur" style={{ background: r.color }} disabled={!canGM} onClick={() => setColorOpen(colorOpen === r.id ? null : r.id)} />
+            <button className="rt-cur" style={{ background: shownColor(r) }} disabled={!canColor(r)} onClick={() => setColorOpen(colorOpen === r.id ? null : r.id)} />
             <div className={`rt-swatches${colorOpen === r.id ? " open" : ""}`}>
               {swatches.map(([hex, name]) => (
                 <button key={hex + name} className="rt-sw" style={{ background: hex }} data-tip={name}
-                  onClick={() => { onSave({ ...r, color: hex }); setColorOpen(null); }} />
+                  onClick={() => pickColor(hex)} />
               ))}
             </div>
           </div>
+          {r.classKey !== "Normal Human" && colorOpen !== r.id && (
+            <XpField r={r} canEdit={canPlay} onCommit={(xp) => onSave(applyXp(r, xp))} />
+          )}
           {canGM && (
             <span className="rt-foot-right">
               <button className="rt-add" onClick={() => onSave({ ...r, hidden: !r.hidden })}>{r.hidden ? "Show" : "Hide"}</button>
@@ -397,12 +426,17 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
         <h2>Retainers</h2>
         <div className="rt-head-right">
           {!isGM && (
-            <button className={`btn${onlyMine ? " rt-on" : ""}`} onClick={() => setOnlyMine((v) => !v)}>
+            <button data-tour="rt-mine" className={`btn${onlyMine ? " rt-on" : ""}`} onClick={() => setOnlyMine((v) => !v)}>
               {onlyMine ? "Show all retainers" : "Show only my retainers"}
             </button>
           )}
+          {isGM && (
+            <button className={`btn${viewAs ? " rt-on" : ""}`} data-tour="rt-view" onClick={pickView}>
+              {viewAs ? `Viewing: ${viewAs === "unassigned" ? "Unassigned" : characters.find((c) => c.id === viewAs)?.name || "Unnamed"}` : "View by player"}
+            </button>
+          )}
           {isGM && unassigned.length > 0 && <button className="btn text danger" onClick={deleteUnassigned}>Delete Unassigned ({unassigned.length})</button>}
-          {isGM && <button className="btn" onClick={onGenerate}>+ Generate Retainer</button>}
+          {isGM && <button className="btn" data-tour="rt-generate" onClick={onGenerate}>+ Generate Retainer</button>}
         </div>
       </div>
       <div className="rt-stack" ref={wrapRef} onMouseMove={onMouseMove} onMouseLeave={clearTip} onScrollCapture={onScrollShow}>
@@ -422,5 +456,27 @@ export default function RetainerStack({ retainers, characters, playerId, isGM, o
       <RollBanner roll={roll} onDismiss={() => setRoll(null)} />
       {modal && <AppModal state={modal} />}
     </div>
+  );
+}
+
+// XP edits only apply when committed (blur / Enter), so typing "1200" doesn't re-level the card on "1" and "12".
+function XpField({ r, canEdit, onCommit }: { r: Retainer; canEdit: boolean; onCommit: (xp: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const cls = r.classKey as import("./classData").ClassKey;
+  const next = nextLevelXp(cls, r.level);
+  const commit = () => {
+    if (draft === null) return;
+    const n = parseInt(draft.replace(/[^\d]/g, ""), 10);
+    setDraft(null);
+    if (!Number.isNaN(n) && n !== r.xp) onCommit(n);
+  };
+  return (
+    <span className="rt-xp" data-tip={next ? `Next level at ${next.toLocaleString()} XP` : "Max level"}>
+      <span className="rt-lbl">XP</span>
+      <input value={draft ?? r.xp.toLocaleString()} disabled={!canEdit} inputMode="numeric"
+        onFocus={(e) => { setDraft(String(r.xp)); e.currentTarget.select(); }}
+        onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+    </span>
   );
 }

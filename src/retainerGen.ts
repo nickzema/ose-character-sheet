@@ -1,7 +1,7 @@
 import { NAME_LISTS } from "./retainerNames";
 import { abilityMod } from "./abilities";
 import { CLERIC_SPELLS, MAGIC_USER_SPELLS } from "./spells";
-import { classStats, maxLevelOf, hdOf, NORMAL_HUMAN_SAVES, type ClassKey } from "./classData";
+import { classStats, maxLevelOf, hdOf, levelForXp, xpForLevel, NORMAL_HUMAN_SAVES, type ClassKey } from "./classData";
 import { colorForClass, type Retainer } from "./retainerTypes";
 import type { Abilities, MemorizedSpell, Weapon } from "./types";
 
@@ -128,6 +128,14 @@ export function applyLevel(r: Retainer, level: number): Retainer {
   };
 }
 
+/** Set a retainer's XP; their level (and everything that follows from it) is derived from it. */
+export function applyXp(r: Retainer, xp: number): Retainer {
+  const n = Math.max(0, Math.round(xp) || 0);
+  if (r.classKey === "Normal Human") return r;
+  const next = applyLevel(r, levelForXp(r.classKey, n));
+  return { ...next, xp: n };
+}
+
 export function generateRetainer(order: number, maxLevel = 1): Retainer {
   // 1. Abilities, 3d6 in order.
   const a: Abilities = { str: roll(3, 6), int: roll(3, 6), wis: roll(3, 6), dex: roll(3, 6), con: roll(3, 6), cha: roll(3, 6) };
@@ -195,6 +203,7 @@ export function generateRetainer(order: number, maxLevel = 1): Retainer {
     name: randomName(cls),
     classKey: cls,
     level,
+    xp: normal ? 0 : xpForLevel(cls as ClassKey, level),
     alignment,
     abilities: a,
     hpCurrent: hp,
@@ -208,6 +217,7 @@ export function generateRetainer(order: number, maxLevel = 1): Retainer {
     spells,
     ownerCharacterId: "",
     color: colorForClass(cls),
+    ownerColor: "",
     hidden: false,
     linkedTokenId: null,
   };

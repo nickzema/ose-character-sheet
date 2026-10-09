@@ -155,3 +155,22 @@ export const hdOf = (cls: ClassKey) => DEFS[cls].hitDie;
 export const NORMAL_HUMAN_SAVES: Saves = { death: 14, wands: 15, paralysis: 16, breath: 17, spells: 18 };
 
 export const maxLevelOf = (cls: ClassKey) => DEFS[cls].maxLevel;
+
+// XP needed for each level (index 0 = level 1), from the OSE Classic level progression tables.
+const XP_TABLE: Record<ClassKey, number[]> = {
+  Cleric: [0, 1500, 3000, 6000, 12000, 25000, 50000, 100000, 200000, 300000, 400000, 500000, 600000, 700000],
+  Dwarf: [0, 2200, 4400, 8800, 17000, 35000, 70000, 140000, 270000, 400000, 530000, 660000],
+  Elf: [0, 4000, 8000, 16000, 32000, 64000, 120000, 250000, 400000, 600000],
+  Fighter: [0, 2000, 4000, 8000, 16000, 32000, 64000, 120000, 240000, 360000, 480000, 600000, 720000, 840000],
+  Halfling: [0, 2000, 4000, 8000, 16000, 32000, 64000, 120000],
+  "Magic-User": [0, 2500, 5000, 10000, 20000, 40000, 80000, 150000, 300000, 450000, 600000, 750000, 900000, 1050000],
+  Thief: [0, 1200, 2400, 4800, 9600, 20000, 40000, 80000, 160000, 280000, 400000, 520000, 640000, 760000],
+};
+export const xpForLevel = (cls: ClassKey, level: number) => XP_TABLE[cls][Math.min(Math.max(1, level), XP_TABLE[cls].length) - 1];
+export const levelForXp = (cls: ClassKey, xp: number) => {
+  const t = XP_TABLE[cls];
+  let lv = 1;
+  t.forEach((need, i) => { if (xp >= need) lv = i + 1; });
+  return lv;
+};
+export const nextLevelXp = (cls: ClassKey, level: number): number | null => XP_TABLE[cls][level] ?? null;

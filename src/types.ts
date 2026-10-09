@@ -1,5 +1,11 @@
 import { classChoiceFromName, type ClassChoice } from "./classData";
 
+export type AbilityScores = { [K in keyof Abilities]: number | null };
+/** Blank scores count as 10 (no modifier) in calculations; a real 0 stays 0. */
+export const nums = (a: AbilityScores): Abilities => ({
+  str: a.str ?? 10, int: a.int ?? 10, wis: a.wis ?? 10, dex: a.dex ?? 10, con: a.con ?? 10, cha: a.cha ?? 10,
+});
+
 export interface Abilities {
   str: number;
   int: number;
@@ -92,7 +98,7 @@ export interface Character {
   level: number;
   alignment: string;
 
-  abilities: Abilities;
+  abilities: AbilityScores; // null = blank (not yet set), distinct from a real 0
 
   hpCurrent: number;
   hpMax: number;
@@ -170,7 +176,7 @@ export function blankCharacter(id: string, ownerId: string): Character {
     level: 1,
     alignment: "Neutral",
 
-    abilities: { str: 10, int: 10, wis: 10, dex: 10, con: 10, cha: 10 },
+    abilities: { str: null, int: null, wis: null, dex: null, con: null, cha: null },
 
     hpCurrent: 1,
     hpMax: 1,

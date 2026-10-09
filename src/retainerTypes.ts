@@ -1,5 +1,5 @@
 import type { Abilities, MemorizedSpell, Saves, Weapon } from "./types";
-import type { ClassKey } from "./classData";
+import { xpForLevel, type ClassKey } from "./classData";
 
 // A retainer card: a lightweight stat block, not a character sheet. Stored in
 // room metadata as one small key per card (see useOBR.ts).
@@ -11,7 +11,8 @@ export interface Retainer {
 
   name: string;
   classKey: ClassKey | "Normal Human";
-  level: number; // 0 for Normal Humans
+  level: number; // 0 for Normal Humans; always follows xp
+  xp: number;
   alignment: string;
   abilities: Abilities;
 
@@ -27,7 +28,8 @@ export interface Retainer {
   spells: MemorizedSpell[];
 
   ownerCharacterId: string; // party character this retainer serves; "" = not yet hired
-  color: string;
+  color: string; // shared colour while unassigned; once assigned, everyone sees the owner's sheet colour
+  ownerColor: string; // the owner's own pick, seen only by the owner (and the GM viewing as them); "" = none
   hidden: boolean; // GM-only: hidden from players
   linkedTokenId: string | null;
 }
@@ -73,9 +75,12 @@ export function healRetainer(raw: Partial<Retainer> & { id: string }): Retainer 
     spells: [],
     ownerCharacterId: "",
     color: YELLOW,
+    ownerColor: "",
     hidden: false,
     linkedTokenId: null,
     ...raw,
     abilities: { str: 10, int: 10, wis: 10, dex: 10, con: 10, cha: 10, ...raw.abilities },
+    // Older cards had a level but no XP: start them at their level's minimum.
+    xp: raw.xp ?? (raw.classKey && raw.classKey !== "Normal Human" && raw.level ? xpForLevel(raw.classKey, raw.level) : 0),
   };
 }

@@ -315,7 +315,7 @@ export function useRoster() {
     migrate: migrateLegacy,
     fullWarning: "NOT SAVED - room storage is full. Changes will be lost on refresh. Remove a portrait or trim notes.",
     pack: packCharacter,
-    stripOnFull: (c) => (c.portrait && !c.linkedTokenId ? { ...c, portrait: null } : null),
+    stripOnFull: (c) => (c.portrait && !c.linkedTokenId && c.portrait.startsWith("data:") ? { ...c, portrait: null } : null),
   });
   return { roster: r.items, saveCharacter: r.save, deleteCharacter: r.remove, saveWarning: r.saveWarning };
 }
